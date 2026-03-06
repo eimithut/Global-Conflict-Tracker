@@ -48,34 +48,6 @@ interface GuardianArticle {
   selector: 'app-globe',
   template: `
     <div class="relative w-screen h-screen flex flex-col items-center justify-center bg-slate-900 overflow-hidden">
-      <!-- Header / Title -->
-      <div class="absolute top-6 left-6 z-20 pointer-events-none">
-        <h1 class="text-2xl font-black text-white tracking-tighter uppercase italic">Global Conflict Watch</h1>
-        <p class="text-[10px] text-slate-500 font-bold tracking-[0.2em] uppercase">Live Geopolitical Intelligence</p>
-      </div>
-
-      <!-- Refresh Button -->
-      <div class="absolute top-6 right-6 z-20 flex gap-2">
-        @if (geminiApiKeyMissing()) {
-          <button (click)="openKeySelector()" 
-            class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 border border-blue-400 rounded-full text-[10px] font-bold text-white uppercase tracking-wider transition-all cursor-pointer shadow-lg shadow-blue-500/20">
-            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>
-            Set Gemini API Key
-          </button>
-        }
-        <button (click)="refreshGlobalAnalysis()" 
-          class="flex items-center gap-2 px-4 py-2 bg-slate-900/80 hover:bg-slate-800 border border-slate-700 rounded-full text-[10px] font-bold text-white uppercase tracking-wider transition-all cursor-pointer group"
-          [disabled]="loading()">
-          @if (loading()) {
-            <div class="animate-spin rounded-full h-3 w-3 border-b-2 border-white"></div>
-            Analyzing...
-          } @else {
-            <svg class="w-3 h-3 group-hover:rotate-180 transition-transform duration-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-            Refresh Global Analysis
-          }
-        </button>
-      </div>
-
       @if (loading()) {
         <div class="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/80 z-10 text-white">
           <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-white mb-4"></div>
@@ -289,6 +261,7 @@ interface GuardianArticle {
 })
 export class Globe implements OnDestroy {
   private globeContainer = viewChild.required<ElementRef>('globeContainer');
+  private ai!: GoogleGenAI;
   private resizeObserver?: ResizeObserver;
   private worldData: {features: Feature[]} | null = null;
   private countryStatuses: Record<string, string> = {};
@@ -301,7 +274,6 @@ export class Globe implements OnDestroy {
   activeTab = signal<'menu' | 'analysis' | 'tagesschau' | 'bbc' | 'nyt' | 'guardian'>('menu');
   nytApiKeyMissing = signal(false);
   guardianApiKeyMissing = signal(false);
-  geminiApiKeyMissing = signal(false);
   
   filteredTagesschau = signal<TagesschauNewsItem[]>([]);
   filteredBbc = signal<BbcNewsItem[]>([]);
@@ -314,63 +286,18 @@ export class Globe implements OnDestroy {
   private guardianNews: GuardianArticle[] = [];
 
   constructor() {
+    if (typeof GEMINI_API_KEY !== 'undefined' && GEMINI_API_KEY) {
+      this.ai = new GoogleGenAI({apiKey: GEMINI_API_KEY});
+    } else {
+      console.error('GEMINI_API_KEY is not defined.');
+    }
     afterNextRender(() => {
       this.initGlobe();
     });
   }
 
-  async openKeySelector() {
-    if (window.aistudio?.openSelectKey) {
-      await window.aistudio.openSelectKey();
-      this.geminiApiKeyMissing.set(false);
-      this.refreshGlobalAnalysis();
-    }
-  }
-
-  private async getAI(): Promise<GoogleGenAI | null> {
-    let key = '';
-    try {
-      if (typeof GEMINI_API_KEY !== 'undefined' && GEMINI_API_KEY) {
-        key = GEMINI_API_KEY;
-      }
-    } catch {
-      // Ignore ReferenceError if variable is not defined
-    }
-
-    if (key) {
-      this.geminiApiKeyMissing.set(false);
-      return new GoogleGenAI({apiKey: key});
-    }
-
-    // Check if user has selected a key via the dialog
-    if (window.aistudio?.hasSelectedApiKey) {
-      const hasKey = await window.aistudio.hasSelectedApiKey();
-      if (hasKey) {
-        this.geminiApiKeyMissing.set(false);
-        // The platform intercepts requests and injects the key.
-        // We pass a dummy key to satisfy the SDK's validation.
-        return new GoogleGenAI({apiKey: 'platform_injected_key'});
-      }
-    }
-
-    this.geminiApiKeyMissing.set(true);
-    return null;
-  }
-
   ngOnDestroy() {
     this.resizeObserver?.disconnect();
-  }
-
-  async refreshGlobalAnalysis() {
-    this.loading.set(true);
-    try {
-      this.countryStatuses = await this.getCountryStatuses();
-      this.renderGlobe();
-    } catch (error) {
-      console.error('Error refreshing global analysis:', error);
-    } finally {
-      this.loading.set(false);
-    }
   }
 
   private async initGlobe() {
@@ -410,9 +337,8 @@ export class Globe implements OnDestroy {
     this.countryDetails.set(null);
     this.activeTab.set('menu');
     
-    const ai = await this.getAI();
-    if (!ai) {
-      this.countryDetails.set('Error: Gemini API key is missing. Please set your API key using the button in the top-right corner.');
+    if (!this.ai) {
+      this.countryDetails.set('Error: Gemini API key is missing.');
       this.countryDetailsLoading.set(false);
       return;
     }
@@ -473,7 +399,7 @@ export class Globe implements OnDestroy {
         newsContext += `The Guardian News:\n` + relevantGuardian.map(item => `Title: ${item.webTitle}\nSection: ${item.sectionName}`).join('\n\n') + '\n\n';
       }
 
-      const response = await ai.models.generateContent({
+      const response = await this.ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: `Based on the following recent news from Tagesschau, BBC, NYT, and The Guardian (if any) and your general knowledge, provide a brief, 2-3 paragraph summary of the current geopolitical situation in ${name}. It is currently marked as "${status}". Focus on conflicts, tensions, or political instability. Do not use markdown formatting like bolding or headers, just plain text paragraphs.\n\nRecent News for ${name}:\n${newsContext || 'No specific recent news found in the latest feeds.'}`,
         config: {
@@ -613,22 +539,23 @@ export class Globe implements OnDestroy {
   }
 
   private async getCountryStatuses(): Promise<Record<string, string>> {
-    const ai = await this.getAI();
-    if (!ai) {
-      console.warn('AI initialization failed. Skipping global analysis.');
+    if (!this.ai) {
+      console.error('Gemini AI not initialized. Missing API key.');
       return {};
     }
     try {
       const proxyUrl = 'https://api.allorigins.win/raw?url=';
       
       // Fetch news from Tagesschau API
-      const tagesschauPromise = fetch(`${proxyUrl}${encodeURIComponent('https://www.tagesschau.de/api2u/news/?regions=9&ressort=ausland')}`)
-        .then(res => res.json())
-        .catch(() => ({ news: [] }));
+      const tagesschauPromise = fetch('https://www.tagesschau.de/api2u/news/?regions=9&ressort=ausland', {
+        headers: { 'accept': 'application/json' }
+      }).then(res => res.json()).catch(() => ({ news: [] }));
 
       // Fetch news from BBC via RSS-to-JSON (more reliable)
-      const bbcNewsPromise = fetch(`${proxyUrl}${encodeURIComponent('https://api.rss2json.com/v1/api.json?rss_url=https://feeds.bbci.co.uk/news/world/rss.xml')}`)
-        .then(res => res.json())
+      const bbcNewsPromise = fetch('https://api.rss2json.com/v1/api.json?rss_url=https://feeds.bbci.co.uk/news/world/rss.xml', {
+        headers: { 'accept': 'application/json' }
+      }).then(res => res.json())
+        .catch(() => fetch(`${proxyUrl}${encodeURIComponent('https://api.rss2json.com/v1/api.json?rss_url=https://feeds.bbci.co.uk/news/world/rss.xml')}`).then(res => res.json()))
         .catch(() => ({ items: [] }));
 
       // Fetch news from NYT API
@@ -708,22 +635,10 @@ export class Globe implements OnDestroy {
         `Title: ${item.webTitle}\nSection: ${item.sectionName}`
       ).join('\n\n');
 
-      const response = await ai.models.generateContent({
+      const response = await this.ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Based on the provided news snippets AND your own real-time search capabilities, identify ALL countries currently experiencing major geopolitical issues. 
-        
-        Categorize them into:
-        1. "war": Active major armed conflicts, invasions, or full-scale civil wars.
-        2. "tense": High military tension, border skirmishes, significant internal unrest, recent coups, or severe political instability.
-        3. "watch": Emerging crises, potential for instability, significant protests, or diplomatic breakdowns.
-        
-        Be thorough and inclusive of all regions including Sub-Saharan Africa, Latin America, Southeast Asia, and Central Asia. Many regional conflicts may not be in the top headlines but are critical.
-        
-        Return ONLY a JSON object with these three arrays of country names. Use standard English country names.
-        
-        Tagesschau News:\n${tagesschauText}\n\nBBC News:\n${bbcText}\n\nNYT News:\n${nytText}\n\nThe Guardian News:\n${guardianText}`,
+        contents: `Based on the following recent news from Tagesschau, BBC, NYT, and The Guardian, determine the current geopolitical status of countries worldwide. Categorize countries into three lists: "war" (active major conflicts), "tense" (high tension, border skirmishes, significant internal unrest), and "watch" (potential for instability, political crisis, emerging issues). Return ONLY a JSON object with these three arrays of country names. Ensure country names match standard English names (e.g., "Russia", "Ukraine", "Israel", "Palestine", "Sudan", "Taiwan").\n\nTagesschau News:\n${tagesschauText}\n\nBBC News:\n${bbcText}\n\nNYT News:\n${nytText}\n\nThe Guardian News:\n${guardianText}`,
         config: {
-          tools: [{ googleSearch: {} }],
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
