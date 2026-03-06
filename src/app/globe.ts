@@ -1,4 +1,5 @@
-import {ChangeDetectionStrategy, Component, ElementRef, viewChild, signal, afterNextRender} from '@angular/core';
+import {ChangeDetectionStrategy, Component, ElementRef, viewChild, signal, afterNextRender, OnDestroy} from '@angular/core';
+import {DatePipe} from '@angular/common';
 import * as d3 from 'd3';
 import {GoogleGenAI, Type} from '@google/genai';
 
@@ -30,11 +31,23 @@ interface NytArticle {
   geo_facet?: string[];
 }
 
+interface GuardianArticle {
+  id: string;
+  type: string;
+  sectionId: string;
+  sectionName: string;
+  webPublicationDate: string;
+  webTitle: string;
+  webUrl: string;
+  apiUrl: string;
+}
+
 @Component({
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [DatePipe],
   selector: 'app-globe',
   template: `
-    <div class="relative w-full h-[600px] flex flex-col items-center justify-center bg-slate-900 rounded-xl overflow-hidden">
+    <div class="relative w-screen h-screen flex flex-col items-center justify-center bg-slate-900 overflow-hidden">
       @if (loading()) {
         <div class="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/80 z-10 text-white">
           <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-white mb-4"></div>
@@ -93,49 +106,90 @@ interface NytArticle {
               </span>
             </div>
 
-            <!-- Tabs -->
-            <div class="flex border-b border-slate-700 mb-4 overflow-x-auto no-scrollbar">
-              <button (click)="activeTab.set('analysis')" 
-                class="px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors whitespace-nowrap"
-                [class.text-white]="activeTab() === 'analysis'"
-                [class.border-b-2]="activeTab() === 'analysis'"
-                [class.border-white]="activeTab() === 'analysis'"
-                [class.text-slate-500]="activeTab() !== 'analysis'">
-                Analysis
+            <!-- Navigation Menu or Back Button -->
+            @if (activeTab() !== 'menu') {
+              <button (click)="activeTab.set('menu')" class="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-blue-400 hover:text-blue-300 mb-4 transition-colors cursor-pointer">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                Back to Sources
               </button>
-              <button (click)="activeTab.set('tagesschau')" 
-                class="px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors whitespace-nowrap"
-                [class.text-white]="activeTab() === 'tagesschau'"
-                [class.border-b-2]="activeTab() === 'tagesschau'"
-                [class.border-white]="activeTab() === 'tagesschau'"
-                [class.text-slate-500]="activeTab() !== 'tagesschau'">
-                Tagesschau
-              </button>
-              <button (click)="activeTab.set('bbc')" 
-                class="px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors whitespace-nowrap"
-                [class.text-white]="activeTab() === 'bbc'"
-                [class.border-b-2]="activeTab() === 'bbc'"
-                [class.border-white]="activeTab() === 'bbc'"
-                [class.text-slate-500]="activeTab() !== 'bbc'">
-                BBC
-              </button>
-              <button (click)="activeTab.set('nyt')" 
-                class="px-4 py-2 text-xs font-bold uppercase tracking-wider transition-colors whitespace-nowrap"
-                [class.text-white]="activeTab() === 'nyt'"
-                [class.border-b-2]="activeTab() === 'nyt'"
-                [class.border-white]="activeTab() === 'nyt'"
-                [class.text-slate-500]="activeTab() !== 'nyt'">
-                NYT
-              </button>
-            </div>
-            
+            }
+
             @if (countryDetailsLoading()) {
               <div class="flex flex-col items-center justify-center py-12">
                 <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-400 mb-4"></div>
                 <p class="text-sm text-slate-400 animate-pulse">Gathering latest news...</p>
               </div>
             } @else {
-              @if (activeTab() === 'analysis') {
+              @if (activeTab() === 'menu') {
+                <div class="space-y-2">
+                  <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Available Sources</p>
+                  
+                  <button (click)="activeTab.set('analysis')" class="w-full flex items-center justify-between p-4 bg-slate-900/40 hover:bg-slate-900/80 border border-slate-700/50 rounded-xl transition-all group cursor-pointer">
+                    <div class="flex items-center gap-3">
+                      <div class="p-2 bg-blue-500/10 rounded-lg text-blue-400 group-hover:scale-110 transition-transform">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.364-6.364l-.707-.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M12 13a3 3 0 100-6 3 3 0 000 6z"></path></svg>
+                      </div>
+                      <div class="text-left">
+                        <span class="block text-sm font-bold text-white">AI Geopolitical Analysis</span>
+                        <span class="text-[10px] text-slate-500">Summary of the current situation</span>
+                      </div>
+                    </div>
+                    <svg class="w-4 h-4 text-slate-600 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                  </button>
+
+                  <button (click)="activeTab.set('tagesschau')" class="w-full flex items-center justify-between p-4 bg-slate-900/40 hover:bg-slate-900/80 border border-slate-700/50 rounded-xl transition-all group cursor-pointer">
+                    <div class="flex items-center gap-3">
+                      <div class="p-2 bg-slate-800 rounded-lg text-slate-300 group-hover:scale-110 transition-transform">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10l4 4v10a2 2 0 01-2 2z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 4v4h4"></path></svg>
+                      </div>
+                      <div class="text-left">
+                        <span class="block text-sm font-bold text-white">Tagesschau</span>
+                        <span class="text-[10px] text-slate-500">{{ filteredTagesschau().length }} articles found</span>
+                      </div>
+                    </div>
+                    <svg class="w-4 h-4 text-slate-600 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                  </button>
+
+                  <button (click)="activeTab.set('bbc')" class="w-full flex items-center justify-between p-4 bg-slate-900/40 hover:bg-slate-900/80 border border-slate-700/50 rounded-xl transition-all group cursor-pointer">
+                    <div class="flex items-center gap-3">
+                      <div class="p-2 bg-red-500/10 rounded-lg text-red-400 group-hover:scale-110 transition-transform">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                      </div>
+                      <div class="text-left">
+                        <span class="block text-sm font-bold text-white">BBC News</span>
+                        <span class="text-[10px] text-slate-500">{{ filteredBbc().length }} articles found</span>
+                      </div>
+                    </div>
+                    <svg class="w-4 h-4 text-slate-600 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                  </button>
+
+                  <button (click)="activeTab.set('nyt')" class="w-full flex items-center justify-between p-4 bg-slate-900/40 hover:bg-slate-900/80 border border-slate-700/50 rounded-xl transition-all group cursor-pointer">
+                    <div class="flex items-center gap-3">
+                      <div class="p-2 bg-slate-800 rounded-lg text-white group-hover:scale-110 transition-transform">
+                        <span class="font-serif font-bold text-lg leading-none">T</span>
+                      </div>
+                      <div class="text-left">
+                        <span class="block text-sm font-bold text-white">The New York Times</span>
+                        <span class="text-[10px] text-slate-500">{{ filteredNyt().length }} articles found</span>
+                      </div>
+                    </div>
+                    <svg class="w-4 h-4 text-slate-600 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                  </button>
+
+                  <button (click)="activeTab.set('guardian')" class="w-full flex items-center justify-between p-4 bg-slate-900/40 hover:bg-slate-900/80 border border-slate-700/50 rounded-xl transition-all group cursor-pointer">
+                    <div class="flex items-center gap-3">
+                      <div class="p-2 bg-blue-600/10 rounded-lg text-blue-500 group-hover:scale-110 transition-transform">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
+                      </div>
+                      <div class="text-left">
+                        <span class="block text-sm font-bold text-white">The Guardian</span>
+                        <span class="text-[10px] text-slate-500">{{ filteredGuardian().length }} articles found</span>
+                      </div>
+                    </div>
+                    <svg class="w-4 h-4 text-slate-600 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                  </button>
+                </div>
+              } @else if (activeTab() === 'analysis') {
                 <div class="text-sm whitespace-pre-wrap leading-relaxed">
                   {{ countryDetails() || 'No analysis available.' }}
                 </div>
@@ -179,6 +233,24 @@ interface NytArticle {
                     <p class="text-sm text-slate-500 italic">No NYT news found for this country.</p>
                   }
                 </div>
+              } @else if (activeTab() === 'guardian') {
+                <div class="space-y-4">
+                  @if (guardianApiKeyMissing()) {
+                    <div class="p-4 bg-orange-900/20 border border-orange-500/30 rounded-lg text-sm text-orange-200">
+                      <p class="font-bold mb-1">Guardian API Key Missing</p>
+                      <p class="text-xs opacity-80">To see news from The Guardian, please add your API key to the environment variables as <code class="bg-black/40 px-1 rounded">GUARDIAN_API_KEY</code>.</p>
+                    </div>
+                  }
+                  @for (item of filteredGuardian(); track item.webTitle) {
+                    <div class="p-3 bg-slate-900/50 rounded border border-slate-700">
+                      <h4 class="font-bold text-white mb-1">{{ item.webTitle }}</h4>
+                      <p class="text-xs text-slate-400 mb-2">{{ item.sectionName }} - {{ item.webPublicationDate | date:'short' }}</p>
+                      <a [href]="item.webUrl" target="_blank" class="text-[10px] text-blue-400 hover:underline">Read on The Guardian</a>
+                    </div>
+                  } @empty {
+                    <p class="text-sm text-slate-500 italic">No Guardian news found for this country.</p>
+                  }
+                </div>
               }
             }
           </div>
@@ -187,25 +259,31 @@ interface NytArticle {
     </div>
   `,
 })
-export class Globe {
+export class Globe implements OnDestroy {
   private globeContainer = viewChild.required<ElementRef>('globeContainer');
   private ai!: GoogleGenAI;
+  private resizeObserver?: ResizeObserver;
+  private worldData: {features: Feature[]} | null = null;
+  private countryStatuses: Record<string, string> = {};
   
   loading = signal(true);
   hoveredCountry = signal<{name: string, status: string} | null>(null);
   selectedCountry = signal<{name: string, status: string} | null>(null);
   countryDetailsLoading = signal(false);
   countryDetails = signal<string | null>(null);
-  activeTab = signal<'analysis' | 'tagesschau' | 'bbc' | 'nyt'>('analysis');
+  activeTab = signal<'menu' | 'analysis' | 'tagesschau' | 'bbc' | 'nyt' | 'guardian'>('menu');
   nytApiKeyMissing = signal(false);
+  guardianApiKeyMissing = signal(false);
   
   filteredTagesschau = signal<TagesschauNewsItem[]>([]);
   filteredBbc = signal<BbcNewsItem[]>([]);
   filteredNyt = signal<NytArticle[]>([]);
+  filteredGuardian = signal<GuardianArticle[]>([]);
   
   private tagesschauNews: TagesschauNewsItem[] = [];
   private bbcNews: BbcNewsItem[] = [];
   private nytNews: NytArticle[] = [];
+  private guardianNews: GuardianArticle[] = [];
 
   constructor() {
     if (typeof GEMINI_API_KEY !== 'undefined' && GEMINI_API_KEY) {
@@ -214,8 +292,31 @@ export class Globe {
       console.error('GEMINI_API_KEY is not defined.');
     }
     afterNextRender(() => {
+      this.initGlobe();
+    });
+  }
+
+  ngOnDestroy() {
+    this.resizeObserver?.disconnect();
+  }
+
+  private async initGlobe() {
+    // Initial data fetch
+    try {
+      this.worldData = await d3.json('https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson') as {features: Feature[]};
+      this.countryStatuses = await this.getCountryStatuses();
+    } catch (error) {
+      console.error('Error fetching initial data:', error);
+    }
+
+    // Initial render
+    this.renderGlobe();
+
+    // Setup resize observer
+    this.resizeObserver = new ResizeObserver(() => {
       this.renderGlobe();
     });
+    this.resizeObserver.observe(this.globeContainer().nativeElement);
   }
 
   getStatusColorText(status?: string): string {
@@ -234,7 +335,7 @@ export class Globe {
     this.selectedCountry.set({ name, status });
     this.countryDetailsLoading.set(true);
     this.countryDetails.set(null);
-    this.activeTab.set('analysis');
+    this.activeTab.set('menu');
     
     if (!this.ai) {
       this.countryDetails.set('Error: Gemini API key is missing.');
@@ -277,6 +378,13 @@ export class Globe {
       });
       this.filteredNyt.set(relevantNyt);
 
+      // Find relevant news from Guardian
+      const relevantGuardian = this.guardianNews.filter(item => {
+        const text = `${item.webTitle} ${item.sectionName}`;
+        return matches(text);
+      });
+      this.filteredGuardian.set(relevantGuardian);
+
       let newsContext = '';
       if (relevantTagesschau.length > 0) {
         newsContext += `Tagesschau:\n` + relevantTagesschau.map(item => `Title: ${item.title}\nSummary: ${item.firstSentence}`).join('\n\n') + '\n\n';
@@ -287,10 +395,13 @@ export class Globe {
       if (relevantNyt.length > 0) {
         newsContext += `NYT News:\n` + relevantNyt.map(item => `Title: ${item.title}\nSummary: ${item.abstract}`).join('\n\n') + '\n\n';
       }
+      if (relevantGuardian.length > 0) {
+        newsContext += `The Guardian News:\n` + relevantGuardian.map(item => `Title: ${item.webTitle}\nSection: ${item.sectionName}`).join('\n\n') + '\n\n';
+      }
 
       const response = await this.ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Based on the following recent news from Tagesschau, BBC, and NYT (if any) and your general knowledge, provide a brief, 2-3 paragraph summary of the current geopolitical situation in ${name}. It is currently marked as "${status}". Focus on conflicts, tensions, or political instability. Do not use markdown formatting like bolding or headers, just plain text paragraphs.\n\nRecent News for ${name}:\n${newsContext || 'No specific recent news found in the latest feeds.'}`,
+        contents: `Based on the following recent news from Tagesschau, BBC, NYT, and The Guardian (if any) and your general knowledge, provide a brief, 2-3 paragraph summary of the current geopolitical situation in ${name}. It is currently marked as "${status}". Focus on conflicts, tensions, or political instability. Do not use markdown formatting like bolding or headers, just plain text paragraphs.\n\nRecent News for ${name}:\n${newsContext || 'No specific recent news found in the latest feeds.'}`,
         config: {
           tools: [{ googleSearch: {} }],
         }
@@ -306,9 +417,11 @@ export class Globe {
 
   private async renderGlobe() {
     const container = this.globeContainer().nativeElement;
-    const width = container.clientWidth || 600;
-    const height = container.clientHeight || 600;
+    const width = container.clientWidth;
+    const height = container.clientHeight;
     
+    if (width === 0 || height === 0) return;
+
     // Clear any existing SVG
     d3.select(container).selectAll('*').remove();
 
@@ -349,23 +462,17 @@ export class Globe {
     // Create a group for countries
     const g = svg.append('g');
 
-    try {
-      // Fetch world data
-      const world = await d3.json('https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson') as {features: Feature[]};
-
-      // Get country statuses from Gemini using real-time search
-      const statuses = await this.getCountryStatuses();
-      
+    if (this.worldData) {
       this.loading.set(false);
 
       // Draw countries
       g.selectAll('path')
-        .data(world.features)
+        .data(this.worldData.features)
         .enter()
         .append('path')
         .attr('d', (d: Feature) => path(d as unknown as d3.GeoPermissibleObjects) || '')
         .attr('fill', (d: Feature) => {
-          const status = statuses[d.properties.name];
+          const status = this.countryStatuses[d.properties.name];
           if (status === 'war') return '#ef4444'; // red-500
           if (status === 'tense') return '#f97316'; // orange-500
           if (status === 'watch') return '#facc15'; // yellow-400
@@ -375,7 +482,7 @@ export class Globe {
         .attr('stroke-width', 0.5)
         .attr('class', 'transition-colors duration-200')
         .on('mouseover', (event: MouseEvent, d: Feature) => {
-          const status = statuses[d.properties.name];
+          const status = this.countryStatuses[d.properties.name];
           this.hoveredCountry.set({
             name: d.properties.name,
             status: status || 'stable'
@@ -392,47 +499,43 @@ export class Globe {
             .attr('stroke-width', 0.5);
         })
         .on('click', (event: MouseEvent, d: Feature) => {
-          const status = statuses[d.properties.name] || 'stable';
+          const status = this.countryStatuses[d.properties.name] || 'stable';
           this.fetchCountryDetails(d.properties.name, status);
         });
-
-      // Add drag behavior for rotation
-      const drag = d3.drag<SVGSVGElement, unknown>()
-        .on('drag', (event) => {
-          const rotate = projection.rotate();
-          // Adjust rotation based on drag distance
-          const k = 75 / projection.scale();
-          projection.rotate([
-            rotate[0] + event.dx * k,
-            rotate[1] - event.dy * k
-          ]);
-          
-          // Update all paths
-          svg.selectAll('path').attr('d', (d: unknown) => path(d as d3.GeoPermissibleObjects) || '');
-        });
-
-      svg.call(drag);
-
-      // Add zoom behavior
-      const zoom = d3.zoom<SVGSVGElement, unknown>()
-        .scaleExtent([initialScale * 0.5, initialScale * 4])
-        .on('zoom', (event) => {
-          projection.scale(event.transform.k);
-          svg.selectAll('path').attr('d', (d: unknown) => path(d as d3.GeoPermissibleObjects) || '');
-        });
-
-      svg.call(zoom)
-        .on("mousedown.zoom", null)
-        .on("touchstart.zoom", null)
-        .on("touchmove.zoom", null)
-        .on("touchend.zoom", null);
-        
-      svg.call(zoom.transform, d3.zoomIdentity.translate(0, 0).scale(initialScale));
-
-    } catch (error) {
-      console.error('Error rendering globe:', error);
-      this.loading.set(false);
     }
+
+    // Add drag behavior for rotation
+    const drag = d3.drag<SVGSVGElement, unknown>()
+      .on('drag', (event) => {
+        const rotate = projection.rotate();
+        // Adjust rotation based on drag distance
+        const k = 75 / projection.scale();
+        projection.rotate([
+          rotate[0] + event.dx * k,
+          rotate[1] - event.dy * k
+        ]);
+        
+        // Update all paths
+        svg.selectAll('path').attr('d', (d: unknown) => path(d as d3.GeoPermissibleObjects) || '');
+      });
+
+    svg.call(drag);
+
+    // Add zoom behavior
+    const zoom = d3.zoom<SVGSVGElement, unknown>()
+      .scaleExtent([initialScale * 0.5, initialScale * 4])
+      .on('zoom', (event) => {
+        projection.scale(event.transform.k);
+        svg.selectAll('path').attr('d', (d: unknown) => path(d as d3.GeoPermissibleObjects) || '');
+      });
+
+    svg.call(zoom)
+      .on("mousedown.zoom", null)
+      .on("touchstart.zoom", null)
+      .on("touchmove.zoom", null)
+      .on("touchend.zoom", null);
+      
+    svg.call(zoom.transform, d3.zoomIdentity.translate(0, 0).scale(initialScale));
   }
 
   private async getCountryStatuses(): Promise<Record<string, string>> {
@@ -448,18 +551,12 @@ export class Globe {
         headers: { 'accept': 'application/json' }
       }).then(res => res.json()).catch(() => ({ news: [] }));
 
-      // Fetch news from BBC API (News and Latest)
-      const bbcNewsPromise = fetch('https://bbc-news-api.vercel.app/news?lang=english', {
+      // Fetch news from BBC via RSS-to-JSON (more reliable)
+      const bbcNewsPromise = fetch('https://api.rss2json.com/v1/api.json?rss_url=https://feeds.bbci.co.uk/news/world/rss.xml', {
         headers: { 'accept': 'application/json' }
       }).then(res => res.json())
-        .catch(() => fetch(`${proxyUrl}${encodeURIComponent('https://bbc-news-api.vercel.app/news?lang=english')}`).then(res => res.json()))
-        .catch(() => ({}));
-
-      const bbcLatestPromise = fetch('https://bbc-news-api.vercel.app/latest?lang=english', {
-        headers: { 'accept': 'application/json' }
-      }).then(res => res.json())
-        .catch(() => fetch(`${proxyUrl}${encodeURIComponent('https://bbc-news-api.vercel.app/latest?lang=english')}`).then(res => res.json()))
-        .catch(() => ({}));
+        .catch(() => fetch(`${proxyUrl}${encodeURIComponent('https://api.rss2json.com/v1/api.json?rss_url=https://feeds.bbci.co.uk/news/world/rss.xml')}`).then(res => res.json()))
+        .catch(() => ({ items: [] }));
 
       // Fetch news from NYT API
       let nytPromise: Promise<{results: NytArticle[]}> = Promise.resolve({ results: [] });
@@ -475,40 +572,51 @@ export class Globe {
         console.warn('NYT_API_KEY is not defined. Skipping NYT news fetch.');
       }
 
-      const [newsData, bbcNewsData, bbcLatestData, nytData] = await Promise.all([
+      // Fetch news from Guardian API
+      let guardianPromise: Promise<{response: {results: GuardianArticle[]}}> = Promise.resolve({ response: { results: [] } });
+      if (typeof GUARDIAN_API_KEY !== 'undefined' && GUARDIAN_API_KEY) {
+        this.guardianApiKeyMissing.set(false);
+        guardianPromise = fetch(`https://content.guardianapis.com/search?api-key=${GUARDIAN_API_KEY}&page-size=50&section=world|politics`, {
+          headers: { 'accept': 'application/json' }
+        }).then(res => res.json())
+          .catch(() => fetch(`${proxyUrl}${encodeURIComponent(`https://content.guardianapis.com/search?api-key=${GUARDIAN_API_KEY}&page-size=50&section=world|politics`)}`).then(res => res.json()))
+          .catch(() => ({ response: { results: [] } }));
+      } else {
+        this.guardianApiKeyMissing.set(true);
+        console.warn('GUARDIAN_API_KEY is not defined. Skipping Guardian news fetch.');
+      }
+
+      const [newsData, bbcData, nytData, guardianData] = await Promise.all([
         tagesschauPromise, 
         bbcNewsPromise, 
-        bbcLatestPromise, 
-        nytPromise
+        nytPromise,
+        guardianPromise
       ]);
       
       this.tagesschauNews = newsData.news || [];
       
-      // Extract BBC news from all sections (dynamic keys) from both endpoints
+      // Extract BBC news from RSS items
       const bbcArticles: BbcNewsItem[] = [];
-      const processBbc = (data: Record<string, unknown>) => {
-        if (data) {
-          Object.keys(data).forEach(key => {
-            const items = data[key];
-            if (Array.isArray(items)) {
-              items.forEach((item: BbcNewsItem) => {
-                // Sanitize links
-                if (item.news_link?.includes('https://bbc.comhttps://')) {
-                  item.news_link = item.news_link.replace('https://bbc.comhttps://', 'https://');
-                }
-                bbcArticles.push(item);
-              });
-            }
-          });
+      if (bbcData && Array.isArray(bbcData.items)) {
+        interface RssItem {
+          title: string;
+          description?: string;
+          content?: string;
+          thumbnail?: string;
+          link: string;
         }
-      };
-      processBbc(bbcNewsData as Record<string, unknown>);
-      processBbc(bbcLatestData as Record<string, unknown>);
-      
-      // Deduplicate BBC articles by news_link
-      const uniqueBbc = Array.from(new Map(bbcArticles.map(item => [item.news_link, item])).values());
-      this.bbcNews = uniqueBbc;
+        bbcData.items.forEach((item: RssItem) => {
+          bbcArticles.push({
+            title: item.title,
+            summary: item.description || item.content || '',
+            image_link: item.thumbnail || '',
+            news_link: item.link
+          });
+        });
+      }
+      this.bbcNews = bbcArticles;
       this.nytNews = nytData.results || [];
+      this.guardianNews = guardianData.response?.results || [];
       
       // Extract relevant text from news
       const tagesschauText = this.tagesschauNews.slice(0, 20).map((item) => 
@@ -523,9 +631,13 @@ export class Globe {
         `Title: ${item.title}\nSummary: ${item.abstract}\nGeo: ${item.geo_facet?.join(', ')}`
       ).join('\n\n');
 
+      const guardianText = this.guardianNews.slice(0, 20).map((item) => 
+        `Title: ${item.webTitle}\nSection: ${item.sectionName}`
+      ).join('\n\n');
+
       const response = await this.ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Based on the following recent news from Tagesschau, BBC, and NYT, determine the current geopolitical status of countries worldwide. Categorize countries into three lists: "war" (active major conflicts), "tense" (high tension, border skirmishes, significant internal unrest), and "watch" (potential for instability, political crisis, emerging issues). Return ONLY a JSON object with these three arrays of country names. Ensure country names match standard English names (e.g., "Russia", "Ukraine", "Israel", "Palestine", "Sudan", "Taiwan").\n\nTagesschau News:\n${tagesschauText}\n\nBBC News:\n${bbcText}\n\nNYT News:\n${nytText}`,
+        contents: `Based on the following recent news from Tagesschau, BBC, NYT, and The Guardian, determine the current geopolitical status of countries worldwide. Categorize countries into three lists: "war" (active major conflicts), "tense" (high tension, border skirmishes, significant internal unrest), and "watch" (potential for instability, political crisis, emerging issues). Return ONLY a JSON object with these three arrays of country names. Ensure country names match standard English names (e.g., "Russia", "Ukraine", "Israel", "Palestine", "Sudan", "Taiwan").\n\nTagesschau News:\n${tagesschauText}\n\nBBC News:\n${bbcText}\n\nNYT News:\n${nytText}\n\nThe Guardian News:\n${guardianText}`,
         config: {
           responseMimeType: 'application/json',
           responseSchema: {

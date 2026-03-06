@@ -21,7 +21,8 @@
           "options": {
             "define": {
               "GEMINI_API_KEY": "'YOUR_GEMINI_API_KEY'",
-              "NYT_API_KEY": "'BZcqu8FH1lM00ZwdplEHYXz8cfA3rfC3AFF331iduhWKX9nn'"
+              "NYT_API_KEY": "'BZcqu8FH1lM00ZwdplEHYXz8cfA3rfC3AFF331iduhWKX9nn'",
+              "GUARDIAN_API_KEY": "'54a64263-8979-4cbd-9baa-40591c6d9fcb'"
             },
             "browser": "src/main.ts",
             "tsConfig": "tsconfig.app.json",
