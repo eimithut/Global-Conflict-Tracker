@@ -1,0 +1,5 @@
+{
+  "name": "Global Conflict Tracker",
+  "description": "A 3D globe visualization showing global conflict and tension levels by country.",
+  "requestFramePermissions": []
+}
