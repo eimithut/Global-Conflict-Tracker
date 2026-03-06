@@ -328,10 +328,18 @@ export class Globe implements OnDestroy {
   }
 
   private async getAI(): Promise<GoogleGenAI | null> {
-    // Check global constant first
-    if (typeof GEMINI_API_KEY !== 'undefined' && GEMINI_API_KEY) {
+    let key = '';
+    try {
+      if (typeof GEMINI_API_KEY !== 'undefined' && GEMINI_API_KEY) {
+        key = GEMINI_API_KEY;
+      }
+    } catch {
+      // Ignore ReferenceError if variable is not defined
+    }
+
+    if (key) {
       this.geminiApiKeyMissing.set(false);
-      return new GoogleGenAI({apiKey: GEMINI_API_KEY});
+      return new GoogleGenAI({apiKey: key});
     }
 
     // Check if user has selected a key via the dialog
@@ -339,8 +347,9 @@ export class Globe implements OnDestroy {
       const hasKey = await window.aistudio.hasSelectedApiKey();
       if (hasKey) {
         this.geminiApiKeyMissing.set(false);
-        // The key is automatically injected into the environment
-        return new GoogleGenAI({apiKey: GEMINI_API_KEY});
+        // The platform intercepts requests and injects the key.
+        // We pass a dummy key to satisfy the SDK's validation.
+        return new GoogleGenAI({apiKey: 'platform_injected_key'});
       }
     }
 
@@ -613,15 +622,13 @@ export class Globe implements OnDestroy {
       const proxyUrl = 'https://api.allorigins.win/raw?url=';
       
       // Fetch news from Tagesschau API
-      const tagesschauPromise = fetch('https://www.tagesschau.de/api2u/news/?regions=9&ressort=ausland', {
-        headers: { 'accept': 'application/json' }
-      }).then(res => res.json()).catch(() => ({ news: [] }));
+      const tagesschauPromise = fetch(`${proxyUrl}${encodeURIComponent('https://www.tagesschau.de/api2u/news/?regions=9&ressort=ausland')}`)
+        .then(res => res.json())
+        .catch(() => ({ news: [] }));
 
       // Fetch news from BBC via RSS-to-JSON (more reliable)
-      const bbcNewsPromise = fetch('https://api.rss2json.com/v1/api.json?rss_url=https://feeds.bbci.co.uk/news/world/rss.xml', {
-        headers: { 'accept': 'application/json' }
-      }).then(res => res.json())
-        .catch(() => fetch(`${proxyUrl}${encodeURIComponent('https://api.rss2json.com/v1/api.json?rss_url=https://feeds.bbci.co.uk/news/world/rss.xml')}`).then(res => res.json()))
+      const bbcNewsPromise = fetch(`${proxyUrl}${encodeURIComponent('https://api.rss2json.com/v1/api.json?rss_url=https://feeds.bbci.co.uk/news/world/rss.xml')}`)
+        .then(res => res.json())
         .catch(() => ({ items: [] }));
 
       // Fetch news from NYT API
