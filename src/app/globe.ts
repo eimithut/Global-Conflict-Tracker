@@ -42,6 +42,23 @@ interface GuardianArticle {
   apiUrl: string;
 }
 
+interface AllAfricaNewsItem {
+  title: string;
+  summary: string;
+  news_link: string;
+}
+
+interface MercoPressNewsItem {
+  title: string;
+  summary: string;
+  news_link: string;
+}
+
+interface SourceStatus {
+  source: string;
+  status: string;
+}
+
 @Component({
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [DatePipe],
@@ -71,9 +88,21 @@ interface GuardianArticle {
           <div class="w-3 h-3 rounded-full bg-yellow-400"></div>
           <span>Watch Out / Caution</span>
         </div>
+        <div class="flex items-center gap-2 mb-1">
+          <div class="w-3 h-3 rounded-full bg-green-500"></div>
+          <span>Stable</span>
+        </div>
         <div class="flex items-center gap-2">
-          <div class="w-3 h-3 rounded-full bg-slate-600"></div>
-          <span>Stable / No Data</span>
+          <div class="w-3 h-3 rounded-sm bg-slate-800 border border-slate-700 flex items-center justify-center overflow-hidden">
+            <svg class="w-3 h-3 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="2" y1="2" x2="22" y2="22"></line>
+              <path d="M8.5 16.5a5 5 0 0 1 7 0"></path>
+              <path d="M5 13a10 10 0 0 1 14 0"></path>
+              <path d="M2 8.8a15 15 0 0 1 20 0"></path>
+              <line x1="12" y1="20" x2="12.01" y2="20"></line>
+            </svg>
+          </div>
+          <span>No Data</span>
         </div>
       </div>
 
@@ -81,10 +110,21 @@ interface GuardianArticle {
       @if (hoveredCountry()) {
         <div class="absolute top-6 right-6 bg-slate-800/90 p-4 rounded-lg border border-slate-700 text-slate-200 shadow-lg backdrop-blur-sm max-w-xs pointer-events-none z-10">
           <h3 class="font-bold text-lg text-white mb-1">{{ hoveredCountry()?.name }}</h3>
-          <div class="flex items-center gap-2">
-            <span class="uppercase text-xs font-bold tracking-wider" [class]="getStatusColorText(hoveredCountry()?.status)">
-              {{ hoveredCountry()?.status || 'Stable' }}
-            </span>
+          <div class="flex flex-col gap-1">
+            @if (hoveredCountry()?.statuses?.length) {
+              @for (s of hoveredCountry()?.statuses; track s.source) {
+                <div class="flex items-center justify-between gap-4">
+                  <span class="text-xs text-slate-400">{{ s.source }}</span>
+                  <span class="uppercase text-xs font-bold tracking-wider" [class]="getStatusColorText(s.status)">
+                    {{ s.status }}
+                  </span>
+                </div>
+              }
+            } @else {
+              <span class="uppercase text-xs font-bold tracking-wider text-slate-500">
+                No Data
+              </span>
+            }
           </div>
         </div>
       }
@@ -99,11 +139,24 @@ interface GuardianArticle {
             </button>
           </div>
           <div class="p-5 flex-1 overflow-y-auto text-slate-300">
-            <div class="mb-6 flex items-center gap-2">
+            <div class="mb-6 flex flex-col gap-2">
               <span class="text-sm text-slate-400">Status:</span>
-              <span class="uppercase text-xs font-bold tracking-wider px-2 py-1 rounded bg-slate-900" [class]="getStatusColorText(selectedCountry()?.status)">
-                {{ selectedCountry()?.status || 'Stable' }}
-              </span>
+              @if (selectedCountry()?.statuses?.length) {
+                <div class="flex flex-wrap gap-2">
+                  @for (s of selectedCountry()?.statuses; track s.source) {
+                    <div class="flex items-center gap-2 bg-slate-900 px-2 py-1 rounded border border-slate-700">
+                      <span class="text-xs text-slate-400">{{ s.source }}:</span>
+                      <span class="uppercase text-xs font-bold tracking-wider" [class]="getStatusColorText(s.status)">
+                        {{ s.status }}
+                      </span>
+                    </div>
+                  }
+                </div>
+              } @else {
+                <span class="uppercase text-xs font-bold tracking-wider px-2 py-1 rounded bg-slate-900 text-slate-500 inline-block w-fit">
+                  No Data
+                </span>
+              }
             </div>
 
             <!-- Navigation Menu or Back Button -->
@@ -179,11 +232,37 @@ interface GuardianArticle {
                   <button (click)="activeTab.set('guardian')" class="w-full flex items-center justify-between p-4 bg-slate-900/40 hover:bg-slate-900/80 border border-slate-700/50 rounded-xl transition-all group cursor-pointer">
                     <div class="flex items-center gap-3">
                       <div class="p-2 bg-blue-600/10 rounded-lg text-blue-500 group-hover:scale-110 transition-transform">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477-4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
                       </div>
                       <div class="text-left">
                         <span class="block text-sm font-bold text-white">The Guardian</span>
                         <span class="text-[10px] text-slate-500">{{ filteredGuardian().length }} articles found</span>
+                      </div>
+                    </div>
+                    <svg class="w-4 h-4 text-slate-600 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                  </button>
+
+                  <button (click)="activeTab.set('allafrica')" class="w-full flex items-center justify-between p-4 bg-slate-900/40 hover:bg-slate-900/80 border border-slate-700/50 rounded-xl transition-all group cursor-pointer">
+                    <div class="flex items-center gap-3">
+                      <div class="p-2 bg-green-500/10 rounded-lg text-green-400 group-hover:scale-110 transition-transform">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                      </div>
+                      <div class="text-left">
+                        <span class="block text-sm font-bold text-white">AllAfrica</span>
+                        <span class="text-[10px] text-slate-500">{{ filteredAllAfrica().length }} articles found</span>
+                      </div>
+                    </div>
+                    <svg class="w-4 h-4 text-slate-600 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                  </button>
+
+                  <button (click)="activeTab.set('mercopress')" class="w-full flex items-center justify-between p-4 bg-slate-900/40 hover:bg-slate-900/80 border border-slate-700/50 rounded-xl transition-all group cursor-pointer">
+                    <div class="flex items-center gap-3">
+                      <div class="p-2 bg-yellow-500/10 rounded-lg text-yellow-400 group-hover:scale-110 transition-transform">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                      </div>
+                      <div class="text-left">
+                        <span class="block text-sm font-bold text-white">MercoPress</span>
+                        <span class="text-[10px] text-slate-500">{{ filteredMercoPress().length }} articles found</span>
                       </div>
                     </div>
                     <svg class="w-4 h-4 text-slate-600 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
@@ -251,6 +330,30 @@ interface GuardianArticle {
                     <p class="text-sm text-slate-500 italic">No Guardian news found for this country.</p>
                   }
                 </div>
+              } @else if (activeTab() === 'allafrica') {
+                <div class="space-y-4">
+                  @for (item of filteredAllAfrica(); track item.title) {
+                    <div class="p-3 bg-slate-900/50 rounded border border-slate-700">
+                      <h4 class="font-bold text-white mb-1">{{ item.title }}</h4>
+                      <p class="text-xs text-slate-400 mb-2">{{ item.summary }}</p>
+                      <a [href]="item.news_link" target="_blank" class="text-[10px] text-blue-400 hover:underline">Read on AllAfrica</a>
+                    </div>
+                  } @empty {
+                    <p class="text-sm text-slate-500 italic">No AllAfrica news found for this country.</p>
+                  }
+                </div>
+              } @else if (activeTab() === 'mercopress') {
+                <div class="space-y-4">
+                  @for (item of filteredMercoPress(); track item.title) {
+                    <div class="p-3 bg-slate-900/50 rounded border border-slate-700">
+                      <h4 class="font-bold text-white mb-1">{{ item.title }}</h4>
+                      <p class="text-xs text-slate-400 mb-2">{{ item.summary }}</p>
+                      <a [href]="item.news_link" target="_blank" class="text-[10px] text-blue-400 hover:underline">Read on MercoPress</a>
+                    </div>
+                  } @empty {
+                    <p class="text-sm text-slate-500 italic">No MercoPress news found for this country.</p>
+                  }
+                </div>
               }
             }
           </div>
@@ -264,14 +367,14 @@ export class Globe implements OnDestroy {
   private ai!: GoogleGenAI;
   private resizeObserver?: ResizeObserver;
   private worldData: {features: Feature[]} | null = null;
-  private countryStatuses: Record<string, string> = {};
+  private countryStatuses: Record<string, SourceStatus[]> = {};
   
   loading = signal(true);
-  hoveredCountry = signal<{name: string, status: string} | null>(null);
-  selectedCountry = signal<{name: string, status: string} | null>(null);
+  hoveredCountry = signal<{name: string, statuses: SourceStatus[]} | null>(null);
+  selectedCountry = signal<{name: string, statuses: SourceStatus[]} | null>(null);
   countryDetailsLoading = signal(false);
   countryDetails = signal<string | null>(null);
-  activeTab = signal<'menu' | 'analysis' | 'tagesschau' | 'bbc' | 'nyt' | 'guardian'>('menu');
+  activeTab = signal<'menu' | 'analysis' | 'tagesschau' | 'bbc' | 'nyt' | 'guardian' | 'allafrica' | 'mercopress'>('menu');
   nytApiKeyMissing = signal(false);
   guardianApiKeyMissing = signal(false);
   
@@ -279,11 +382,15 @@ export class Globe implements OnDestroy {
   filteredBbc = signal<BbcNewsItem[]>([]);
   filteredNyt = signal<NytArticle[]>([]);
   filteredGuardian = signal<GuardianArticle[]>([]);
+  filteredAllAfrica = signal<AllAfricaNewsItem[]>([]);
+  filteredMercoPress = signal<MercoPressNewsItem[]>([]);
   
   private tagesschauNews: TagesschauNewsItem[] = [];
   private bbcNews: BbcNewsItem[] = [];
   private nytNews: NytArticle[] = [];
   private guardianNews: GuardianArticle[] = [];
+  private allAfricaNews: AllAfricaNewsItem[] = [];
+  private mercoPressNews: MercoPressNewsItem[] = [];
 
   constructor() {
     if (typeof GEMINI_API_KEY !== 'undefined' && GEMINI_API_KEY) {
@@ -323,7 +430,16 @@ export class Globe implements OnDestroy {
     if (status === 'war') return 'text-red-400';
     if (status === 'tense') return 'text-orange-400';
     if (status === 'watch') return 'text-yellow-400';
+    if (status === 'stable') return 'text-green-400';
     return 'text-slate-400';
+  }
+
+  getColorHexForStatus(status: string): string {
+    if (status === 'war') return '#ef4444'; // red-500
+    if (status === 'tense') return '#f97316'; // orange-500
+    if (status === 'watch') return '#facc15'; // yellow-400
+    if (status === 'stable') return '#22c55e'; // green-500
+    return '#475569'; // slate-600
   }
 
   closeDetails() {
@@ -331,8 +447,8 @@ export class Globe implements OnDestroy {
     this.countryDetails.set(null);
   }
 
-  async fetchCountryDetails(name: string, status: string) {
-    this.selectedCountry.set({ name, status });
+  async fetchCountryDetails(name: string, statuses: SourceStatus[]) {
+    this.selectedCountry.set({ name, statuses });
     this.countryDetailsLoading.set(true);
     this.countryDetails.set(null);
     this.activeTab.set('menu');
@@ -385,6 +501,20 @@ export class Globe implements OnDestroy {
       });
       this.filteredGuardian.set(relevantGuardian);
 
+      // Find relevant news from AllAfrica
+      const relevantAllAfrica = this.allAfricaNews.filter(item => {
+        const text = `${item.title} ${item.summary}`;
+        return matches(text);
+      });
+      this.filteredAllAfrica.set(relevantAllAfrica);
+
+      // Find relevant news from MercoPress
+      const relevantMercoPress = this.mercoPressNews.filter(item => {
+        const text = `${item.title} ${item.summary}`;
+        return matches(text);
+      });
+      this.filteredMercoPress.set(relevantMercoPress);
+
       let newsContext = '';
       if (relevantTagesschau.length > 0) {
         newsContext += `Tagesschau:\n` + relevantTagesschau.map(item => `Title: ${item.title}\nSummary: ${item.firstSentence}`).join('\n\n') + '\n\n';
@@ -398,10 +528,16 @@ export class Globe implements OnDestroy {
       if (relevantGuardian.length > 0) {
         newsContext += `The Guardian News:\n` + relevantGuardian.map(item => `Title: ${item.webTitle}\nSection: ${item.sectionName}`).join('\n\n') + '\n\n';
       }
+      if (relevantAllAfrica.length > 0) {
+        newsContext += `AllAfrica News:\n` + relevantAllAfrica.map(item => `Title: ${item.title}\nSummary: ${item.summary}`).join('\n\n') + '\n\n';
+      }
+      if (relevantMercoPress.length > 0) {
+        newsContext += `MercoPress News:\n` + relevantMercoPress.map(item => `Title: ${item.title}\nSummary: ${item.summary}`).join('\n\n') + '\n\n';
+      }
 
       const response = await this.ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Based on the following recent news from Tagesschau, BBC, NYT, and The Guardian (if any) and your general knowledge, provide a brief, 2-3 paragraph summary of the current geopolitical situation in ${name}. It is currently marked as "${status}". Focus on conflicts, tensions, or political instability. Do not use markdown formatting like bolding or headers, just plain text paragraphs.\n\nRecent News for ${name}:\n${newsContext || 'No specific recent news found in the latest feeds.'}`,
+        contents: `Based on the following recent news from Tagesschau, BBC, NYT, The Guardian, AllAfrica, and MercoPress (if any) and your general knowledge, provide a brief, 2-3 paragraph summary of the current geopolitical situation in ${name}. It is currently marked with the following statuses by different sources: ${statuses.map(s => `${s.source}: ${s.status}`).join(', ') || 'No Data'}. Focus on conflicts, tensions, or political instability. Do not use markdown formatting like bolding or headers, just plain text paragraphs.\n\nRecent News for ${name}:\n${newsContext || 'No specific recent news found in the latest feeds.'}`,
         config: {
           tools: [{ googleSearch: {} }],
         }
@@ -440,6 +576,32 @@ export class Globe implements OnDestroy {
 
     const path = d3.geoPath().projection(projection);
 
+    const defs = svg.append('defs');
+    
+    const pattern = defs.append('pattern')
+      .attr('id', 'no-data-pattern')
+      .attr('width', 24)
+      .attr('height', 24)
+      .attr('patternUnits', 'userSpaceOnUse');
+      
+    pattern.append('rect')
+      .attr('width', 24)
+      .attr('height', 24)
+      .attr('fill', '#1e293b'); // slate-800
+      
+    const gIcon = pattern.append('g')
+      .attr('stroke', '#334155') // slate-700
+      .attr('stroke-width', 2)
+      .attr('fill', 'none')
+      .attr('stroke-linecap', 'round')
+      .attr('stroke-linejoin', 'round');
+      
+    gIcon.append('line').attr('x1', '2').attr('y1', '2').attr('x2', '22').attr('y2', '22');
+    gIcon.append('path').attr('d', 'M8.5 16.5a5 5 0 0 1 7 0');
+    gIcon.append('path').attr('d', 'M5 13a10 10 0 0 1 14 0');
+    gIcon.append('path').attr('d', 'M2 8.8a15 15 0 0 1 20 0');
+    gIcon.append('line').attr('x1', '12').attr('y1', '20').attr('x2', '12.01').attr('y2', '20');
+
     // Add ocean/sphere
     svg.append('path')
       .datum({type: 'Sphere'})
@@ -472,20 +634,40 @@ export class Globe implements OnDestroy {
         .append('path')
         .attr('d', (d: Feature) => path(d as unknown as d3.GeoPermissibleObjects) || '')
         .attr('fill', (d: Feature) => {
-          const status = this.countryStatuses[d.properties.name];
-          if (status === 'war') return '#ef4444'; // red-500
-          if (status === 'tense') return '#f97316'; // orange-500
-          if (status === 'watch') return '#facc15'; // yellow-400
-          return '#475569'; // slate-600
+          const statuses = this.countryStatuses[d.properties.name] || [];
+          if (statuses.length === 0) return 'url(#no-data-pattern)';
+          
+          const uniqueStatuses = Array.from(new Set(statuses.map(s => s.status)));
+          
+          if (uniqueStatuses.length === 1) {
+            return this.getColorHexForStatus(uniqueStatuses[0]);
+          } else {
+            const gradientId = `grad-${d.properties.name.replace(/[^a-zA-Z0-9]/g, '')}`;
+            if (defs.select(`#${gradientId}`).empty()) {
+              const grad = defs.append('linearGradient')
+                .attr('id', gradientId)
+                .attr('x1', '0%').attr('y1', '0%').attr('x2', '100%').attr('y2', '100%');
+              
+              uniqueStatuses.forEach((status, i) => {
+                grad.append('stop')
+                  .attr('offset', `${(i / uniqueStatuses.length) * 100}%`)
+                  .attr('stop-color', this.getColorHexForStatus(status));
+                grad.append('stop')
+                  .attr('offset', `${((i + 1) / uniqueStatuses.length) * 100}%`)
+                  .attr('stop-color', this.getColorHexForStatus(status));
+              });
+            }
+            return `url(#${gradientId})`;
+          }
         })
         .attr('stroke', '#0f172a') // slate-900
         .attr('stroke-width', 0.5)
         .attr('class', 'transition-colors duration-200')
         .on('mouseover', (event: MouseEvent, d: Feature) => {
-          const status = this.countryStatuses[d.properties.name];
+          const statuses = this.countryStatuses[d.properties.name] || [];
           this.hoveredCountry.set({
             name: d.properties.name,
-            status: status || 'stable'
+            statuses
           });
           d3.select(event.currentTarget as Element)
             .attr('stroke', '#ffffff')
@@ -499,8 +681,8 @@ export class Globe implements OnDestroy {
             .attr('stroke-width', 0.5);
         })
         .on('click', (event: MouseEvent, d: Feature) => {
-          const status = this.countryStatuses[d.properties.name] || 'stable';
-          this.fetchCountryDetails(d.properties.name, status);
+          const statuses = this.countryStatuses[d.properties.name] || [];
+          this.fetchCountryDetails(d.properties.name, statuses);
         });
     }
 
@@ -538,7 +720,7 @@ export class Globe implements OnDestroy {
     svg.call(zoom.transform, d3.zoomIdentity.translate(0, 0).scale(initialScale));
   }
 
-  private async getCountryStatuses(): Promise<Record<string, string>> {
+  private async getCountryStatuses(): Promise<Record<string, SourceStatus[]>> {
     if (!this.ai) {
       console.error('Gemini AI not initialized. Missing API key.');
       return {};
@@ -586,11 +768,27 @@ export class Globe implements OnDestroy {
         console.warn('GUARDIAN_API_KEY is not defined. Skipping Guardian news fetch.');
       }
 
-      const [newsData, bbcData, nytData, guardianData] = await Promise.all([
+      // Fetch news from AllAfrica via RSS-to-JSON
+      const allAfricaPromise = fetch('https://api.rss2json.com/v1/api.json?rss_url=https://allafrica.com/tools/headlines/rdf/latest/headlines.rdf', {
+        headers: { 'accept': 'application/json' }
+      }).then(res => res.json())
+        .catch(() => fetch(`${proxyUrl}${encodeURIComponent('https://api.rss2json.com/v1/api.json?rss_url=https://allafrica.com/tools/headlines/rdf/latest/headlines.rdf')}`).then(res => res.json()))
+        .catch(() => ({ items: [] }));
+
+      // Fetch news from MercoPress via RSS-to-JSON
+      const mercoPressPromise = fetch('https://api.rss2json.com/v1/api.json?rss_url=https://en.mercopress.com/rss/', {
+        headers: { 'accept': 'application/json' }
+      }).then(res => res.json())
+        .catch(() => fetch(`${proxyUrl}${encodeURIComponent('https://api.rss2json.com/v1/api.json?rss_url=https://en.mercopress.com/rss/')}`).then(res => res.json()))
+        .catch(() => ({ items: [] }));
+
+      const [newsData, bbcData, nytData, guardianData, allAfricaData, mercoPressData] = await Promise.all([
         tagesschauPromise, 
         bbcNewsPromise, 
         nytPromise,
-        guardianPromise
+        guardianPromise,
+        allAfricaPromise,
+        mercoPressPromise
       ]);
       
       this.tagesschauNews = newsData.news || [];
@@ -618,6 +816,44 @@ export class Globe implements OnDestroy {
       this.nytNews = nytData.results || [];
       this.guardianNews = guardianData.response?.results || [];
       
+      // Extract AllAfrica news from RSS items
+      const allAfricaArticles: AllAfricaNewsItem[] = [];
+      if (allAfricaData && Array.isArray(allAfricaData.items)) {
+        interface RssItem {
+          title: string;
+          description?: string;
+          content?: string;
+          link: string;
+        }
+        allAfricaData.items.forEach((item: RssItem) => {
+          allAfricaArticles.push({
+            title: item.title,
+            summary: item.description || item.content || '',
+            news_link: item.link
+          });
+        });
+      }
+      this.allAfricaNews = allAfricaArticles;
+
+      // Extract MercoPress news from RSS items
+      const mercoPressArticles: MercoPressNewsItem[] = [];
+      if (mercoPressData && Array.isArray(mercoPressData.items)) {
+        interface RssItem {
+          title: string;
+          description?: string;
+          content?: string;
+          link: string;
+        }
+        mercoPressData.items.forEach((item: RssItem) => {
+          mercoPressArticles.push({
+            title: item.title,
+            summary: item.description || item.content || '',
+            news_link: item.link
+          });
+        });
+      }
+      this.mercoPressNews = mercoPressArticles;
+      
       // Extract relevant text from news
       const tagesschauText = this.tagesschauNews.slice(0, 20).map((item) => 
         `Title: ${item.title}\nSummary: ${item.firstSentence}\nTags: ${item.tags?.map((t) => t.tag).join(', ')}\nGeotags: ${item.geotags?.map((t) => t.tag).join(', ')}`
@@ -635,39 +871,86 @@ export class Globe implements OnDestroy {
         `Title: ${item.webTitle}\nSection: ${item.sectionName}`
       ).join('\n\n');
 
+      const allAfricaText = this.allAfricaNews.slice(0, 20).map((item) => 
+        `Title: ${item.title}\nSummary: ${item.summary}`
+      ).join('\n\n');
+
+      const mercoPressText = this.mercoPressNews.slice(0, 20).map((item) => 
+        `Title: ${item.title}\nSummary: ${item.summary}`
+      ).join('\n\n');
+
       const response = await this.ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Based on the following recent news from Tagesschau, BBC, NYT, and The Guardian, determine the current geopolitical status of countries worldwide. Categorize countries into three lists: "war" (active major conflicts), "tense" (high tension, border skirmishes, significant internal unrest), and "watch" (potential for instability, political crisis, emerging issues). Return ONLY a JSON object with these three arrays of country names. Ensure country names match standard English names (e.g., "Russia", "Ukraine", "Israel", "Palestine", "Sudan", "Taiwan").\n\nTagesschau News:\n${tagesschauText}\n\nBBC News:\n${bbcText}\n\nNYT News:\n${nytText}\n\nThe Guardian News:\n${guardianText}`,
+        contents: `Based on the following recent news from Tagesschau, BBC, NYT, The Guardian, AllAfrica, and MercoPress, determine the current geopolitical status of countries worldwide. 
+Evaluate the status of each country according to EACH individual news source that mentions it.
+Categorize the status into one of four values: "war" (active major conflicts), "tense" (high tension, border skirmishes, significant internal unrest), "watch" (potential for instability, political crisis, emerging issues), or "stable" (specifically mentioned in the news as stable, peaceful, or having positive developments).
+If a source does not mention a country, do not include that source for that country.
+Return ONLY a JSON object containing an array of countries, where each country has a name and a list of statuses from the different sources. Ensure country names match standard English names (e.g., "Russia", "Ukraine", "Israel", "Palestine", "Sudan", "Taiwan").
+
+Tagesschau News:
+${tagesschauText}
+
+BBC News:
+${bbcText}
+
+NYT News:
+${nytText}
+
+The Guardian News:
+${guardianText}
+
+AllAfrica News:
+${allAfricaText}
+
+MercoPress News:
+${mercoPressText}`,
         config: {
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              war: {type: Type.ARRAY, items: {type: Type.STRING}, description: "Countries with active major conflicts"},
-              tense: {type: Type.ARRAY, items: {type: Type.STRING}, description: "Countries with high tension or significant unrest"},
-              watch: {type: Type.ARRAY, items: {type: Type.STRING}, description: "Countries to watch for potential instability"},
-            },
-          },
-        },
+              countries: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    name: { type: Type.STRING, description: "Standard English country name" },
+                    statuses: {
+                      type: Type.ARRAY,
+                      items: {
+                        type: Type.OBJECT,
+                        properties: {
+                          source: { type: Type.STRING, description: "Name of the news source (e.g., 'BBC', 'Tagesschau')" },
+                          status: { type: Type.STRING, description: "One of: 'war', 'tense', 'watch', 'stable'" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
       });
       
       const data = JSON.parse(response.text || '{}');
-      const result: Record<string, string> = {};
+      const result: Record<string, SourceStatus[]> = {};
       
-      // Map standard names to geojson names if needed, or just use lowercase matching
       const normalize = (name: string) => name.toLowerCase().trim();
       
-      if (data.war) data.war.forEach((c: string) => result[c] = 'war');
-      if (data.tense) data.tense.forEach((c: string) => result[c] = 'tense');
-      if (data.watch) data.watch.forEach((c: string) => result[c] = 'watch');
+      if (data.countries && Array.isArray(data.countries)) {
+        data.countries.forEach((c: any) => {
+          if (c.name && Array.isArray(c.statuses)) {
+            result[c.name] = c.statuses;
+          }
+        });
+      }
       
-      // Also create a normalized version for better matching
-      const normalizedResult: Record<string, string> = {};
+      const normalizedResult: Record<string, SourceStatus[]> = {};
       Object.entries(result).forEach(([key, value]) => {
         normalizedResult[normalize(key)] = value;
       });
       
-      // Return a proxy that tries exact match first, then normalized match
       return new Proxy(result, {
         get: (target, prop: string) => {
           if (prop in target) return target[prop];
