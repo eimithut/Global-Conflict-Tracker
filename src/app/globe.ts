@@ -820,14 +820,33 @@ export class Globe implements OnDestroy {
       const sources = 'bbc-news,cnn,reuters,al-jazeera-english,the-new-york-times,the-wall-street-journal,associated-press,bloomberg,google-news,the-guardian-uk,the-washington-post,time,newsweek';
       const newsApiUrl = `https://newsapi.org/v2/top-headlines?sources=${sources}&pageSize=100&apiKey=${newsApiKey}`;
       
-      const newsApiPromise: Promise<{articles: NewsApiArticle[]}> = fetch(newsApiUrl, {
-        headers: { 'accept': 'application/json' }
-      }).then(res => res.json())
-        .catch(() => fetch(`${proxyUrl}${encodeURIComponent(newsApiUrl)}`).then(res => res.json()))
-        .catch((err) => {
-          console.error('News API fetch error:', err);
-          return { articles: [] };
-        });
+      const fetchNewsApi = async () => {
+        const urlsToTry = [
+          newsApiUrl, // Direct fetch (might fail due to CORS)
+          `https://api.allorigins.win/raw?url=${encodeURIComponent(newsApiUrl)}`,
+          `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(newsApiUrl)}`,
+          `https://corsproxy.io/?${encodeURIComponent(newsApiUrl)}`
+        ];
+
+        for (const url of urlsToTry) {
+          try {
+            const res = await fetch(url, { headers: { 'accept': 'application/json' } });
+            if (!res.ok) continue;
+            const data = await res.json();
+            if (data.status === 'ok' && data.articles) {
+              return data;
+            }
+          } catch {
+            // Ignore error and try next URL
+            console.log(`Failed to fetch from ${url}, trying next...`);
+          }
+        }
+        
+        console.error('All News API fetch attempts failed.');
+        return { articles: [] };
+      };
+
+      const newsApiPromise: Promise<{articles: NewsApiArticle[]}> = fetchNewsApi();
 
       const [newsData, bbcData, nytData, guardianData, allAfricaData, mercoPressData, newsApiData] = await Promise.all([
         tagesschauPromise, 
@@ -894,15 +913,12 @@ export class Globe implements OnDestroy {
         }
         const stripHtml = (html: string) => {
           if (!html) return '';
-          // Handle both real tags and escaped tags
-          return html
-            .replace(/<[^>]*>?/gm, '')
-            .replace(/&lt;[^&]*&gt;?/gm, '')
-            .replace(/&nbsp;/g, ' ')
-            .replace(/&amp;/g, '&')
-            .replace(/&quot;/g, '"')
-            .replace(/&apos;/g, "'")
-            .trim();
+          try {
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            return doc.body.textContent || "";
+          } catch {
+            return html.replace(/<[^>]*>?/gm, '').trim();
+          }
         };
         mercoPressData.items.forEach((item: RssItem) => {
           mercoPressArticles.push({
