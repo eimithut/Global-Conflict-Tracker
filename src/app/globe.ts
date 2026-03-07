@@ -69,6 +69,7 @@ interface SourceStatus {
         <div class="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/80 z-10 text-white">
           <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-white mb-4"></div>
           <p class="text-lg font-medium">Analyzing global news for conflict data...</p>
+          <p class="text-sm text-slate-400 mt-2">made by eimithut</p>
         </div>
       }
       <div #globeContainer class="w-full h-full cursor-grab active:cursor-grabbing"></div>
