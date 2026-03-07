@@ -1,7 +1,7 @@
 import {ChangeDetectionStrategy, Component, ElementRef, viewChild, signal, afterNextRender, OnDestroy} from '@angular/core';
 import {DatePipe} from '@angular/common';
 import * as d3 from 'd3';
-import {GoogleGenAI, Type} from '@google/genai';
+import {GoogleGenAI, Type, ThinkingLevel} from '@google/genai';
 
 interface Feature {
   properties: {
@@ -52,14 +52,6 @@ interface MercoPressNewsItem {
   title: string;
   summary: string;
   news_link: string;
-}
-
-interface NewsApiArticle {
-  source: { name: string };
-  title: string;
-  description: string;
-  url: string;
-  publishedAt: string;
 }
 
 interface SourceStatus {
@@ -185,19 +177,6 @@ interface SourceStatus {
                 <div class="space-y-2">
                   <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Available Sources</p>
                   
-                  <button (click)="activeTab.set('newsapi')" class="w-full flex items-center justify-between p-4 bg-slate-900/40 hover:bg-slate-900/80 border border-slate-700/50 rounded-xl transition-all group cursor-pointer">
-                    <div class="flex items-center gap-3">
-                      <div class="p-2 bg-indigo-500/10 rounded-lg text-indigo-400 group-hover:scale-110 transition-transform">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10l4 4v10a2 2 0 01-2 2z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 4v4h4"></path></svg>
-                      </div>
-                      <div class="text-left">
-                        <span class="block text-sm font-bold text-white">News API</span>
-                        <span class="text-[10px] text-slate-500">{{ filteredNewsApi().length }} articles found</span>
-                      </div>
-                    </div>
-                    <svg class="w-4 h-4 text-slate-600 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-                  </button>
-
                   <button (click)="openAnalysis()" class="w-full flex items-center justify-between p-4 bg-slate-900/40 hover:bg-slate-900/80 border border-slate-700/50 rounded-xl transition-all group cursor-pointer">
                     <div class="flex items-center gap-3">
                       <div class="p-2 bg-blue-500/10 rounded-lg text-blue-400 group-hover:scale-110 transition-transform">
@@ -375,24 +354,6 @@ interface SourceStatus {
                     <p class="text-sm text-slate-500 italic">No MercoPress news found for this country.</p>
                   }
                 </div>
-              } @else if (activeTab() === 'newsapi') {
-                <div class="space-y-4">
-                  @for (item of filteredNewsApi(); track item.url) {
-                    <div class="p-3 bg-slate-900/50 rounded border border-slate-700">
-                      <div class="flex justify-between items-start gap-2 mb-1">
-                        <h4 class="font-bold text-white text-sm">{{ item.title }}</h4>
-                        <span class="text-[9px] uppercase px-1 bg-slate-800 rounded text-slate-400 whitespace-nowrap">{{ item.source.name }}</span>
-                      </div>
-                      <p class="text-xs text-slate-400 mb-2">{{ item.description }}</p>
-                      <div class="flex justify-between items-center">
-                        <span class="text-[9px] text-slate-500">{{ item.publishedAt | date:'short' }}</span>
-                        <a [href]="item.url" target="_blank" class="text-[10px] text-blue-400 hover:underline">Read Article</a>
-                      </div>
-                    </div>
-                  } @empty {
-                    <p class="text-sm text-slate-500 italic">No News API articles found for this country.</p>
-                  }
-                </div>
               }
             }
           </div>
@@ -413,7 +374,7 @@ export class Globe implements OnDestroy {
   selectedCountry = signal<{name: string, statuses: SourceStatus[]} | null>(null);
   countryDetailsLoading = signal(false);
   countryDetails = signal<string | null>(null);
-  activeTab = signal<'menu' | 'analysis' | 'tagesschau' | 'bbc' | 'nyt' | 'guardian' | 'allafrica' | 'mercopress' | 'newsapi'>('menu');
+  activeTab = signal<'menu' | 'analysis' | 'tagesschau' | 'bbc' | 'nyt' | 'guardian' | 'allafrica' | 'mercopress'>('menu');
   nytApiKeyMissing = signal(false);
   guardianApiKeyMissing = signal(false);
   
@@ -423,7 +384,6 @@ export class Globe implements OnDestroy {
   filteredGuardian = signal<GuardianArticle[]>([]);
   filteredAllAfrica = signal<AllAfricaNewsItem[]>([]);
   filteredMercoPress = signal<MercoPressNewsItem[]>([]);
-  filteredNewsApi = signal<NewsApiArticle[]>([]);
   
   private tagesschauNews: TagesschauNewsItem[] = [];
   private bbcNews: BbcNewsItem[] = [];
@@ -431,7 +391,6 @@ export class Globe implements OnDestroy {
   private guardianNews: GuardianArticle[] = [];
   private allAfricaNews: AllAfricaNewsItem[] = [];
   private mercoPressNews: MercoPressNewsItem[] = [];
-  private newsApiNews: NewsApiArticle[] = [];
 
   constructor() {
     if (typeof GEMINI_API_KEY !== 'undefined' && GEMINI_API_KEY) {
@@ -513,7 +472,6 @@ export class Globe implements OnDestroy {
     this.filteredGuardian.set(this.guardianNews.filter(item => matches(item.webTitle)));
     this.filteredAllAfrica.set(this.allAfricaNews.filter(item => matches(item.title) || matches(item.summary)));
     this.filteredMercoPress.set(this.mercoPressNews.filter(item => matches(item.title) || matches(item.summary)));
-    this.filteredNewsApi.set(this.newsApiNews.filter(item => matches(item.title) || matches(item.description)));
   }
 
   async openAnalysis() {
@@ -542,13 +500,12 @@ export class Globe implements OnDestroy {
         { name: 'NYT', news: this.filteredNyt() },
         { name: 'The Guardian', news: this.filteredGuardian() },
         { name: 'AllAfrica', news: this.filteredAllAfrica() },
-        { name: 'MercoPress', news: this.filteredMercoPress() },
-        { name: 'News API', news: this.filteredNewsApi() }
+        { name: 'MercoPress', news: this.filteredMercoPress() }
       ];
 
       sources.forEach(s => {
         if (s.news.length > 0) {
-          newsContext += `${s.name}:\n` + s.news.slice(0, 5).map((item: TagesschauNewsItem | BbcNewsItem | NytArticle | GuardianArticle | AllAfricaNewsItem | MercoPressNewsItem | NewsApiArticle) => {
+          newsContext += `${s.name}:\n` + s.news.slice(0, 5).map((item: TagesschauNewsItem | BbcNewsItem | NytArticle | GuardianArticle | AllAfricaNewsItem | MercoPressNewsItem) => {
             let title = '';
             let summary = '';
             
@@ -557,7 +514,6 @@ export class Globe implements OnDestroy {
             
             if ('summary' in item) summary = item.summary;
             else if ('abstract' in item) summary = item.abstract;
-            else if ('description' in item) summary = item.description;
             else if ('firstSentence' in item) summary = item.firstSentence;
             else if ('sectionName' in item) summary = item.sectionName;
 
@@ -813,49 +769,13 @@ export class Globe implements OnDestroy {
         .catch(() => fetch(`${proxyUrl}${encodeURIComponent('https://api.rss2json.com/v1/api.json?rss_url=https://en.mercopress.com/rss/')}`).then(res => res.json()))
         .catch(() => ({ items: [] }));
 
-      // Fetch news from News API
-      const newsApiKey = '46808ad1454c4a1499faa5e91ca6ba48';
-      
-      // Using specific high-quality global sources is the most reliable way to get world news on the free tier
-      const sources = 'bbc-news,cnn,reuters,al-jazeera-english,the-new-york-times,the-wall-street-journal,associated-press,bloomberg,google-news,the-guardian-uk,the-washington-post,time,newsweek';
-      const newsApiUrl = `https://newsapi.org/v2/top-headlines?sources=${sources}&pageSize=100&apiKey=${newsApiKey}`;
-      
-      const fetchNewsApi = async () => {
-        const urlsToTry = [
-          newsApiUrl, // Direct fetch (might fail due to CORS)
-          `https://api.allorigins.win/raw?url=${encodeURIComponent(newsApiUrl)}`,
-          `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(newsApiUrl)}`,
-          `https://corsproxy.io/?${encodeURIComponent(newsApiUrl)}`
-        ];
-
-        for (const url of urlsToTry) {
-          try {
-            const res = await fetch(url, { headers: { 'accept': 'application/json' } });
-            if (!res.ok) continue;
-            const data = await res.json();
-            if (data.status === 'ok' && data.articles) {
-              return data;
-            }
-          } catch {
-            // Ignore error and try next URL
-            console.log(`Failed to fetch from ${url}, trying next...`);
-          }
-        }
-        
-        console.error('All News API fetch attempts failed.');
-        return { articles: [] };
-      };
-
-      const newsApiPromise: Promise<{articles: NewsApiArticle[]}> = fetchNewsApi();
-
-      const [newsData, bbcData, nytData, guardianData, allAfricaData, mercoPressData, newsApiData] = await Promise.all([
+      const [newsData, bbcData, nytData, guardianData, allAfricaData, mercoPressData] = await Promise.all([
         tagesschauPromise, 
         bbcNewsPromise, 
         nytPromise,
         guardianPromise,
         allAfricaPromise,
-        mercoPressPromise,
-        newsApiPromise
+        mercoPressPromise
       ]);
       
       this.tagesschauNews = newsData.news || [];
@@ -929,40 +849,35 @@ export class Globe implements OnDestroy {
         });
       }
       this.mercoPressNews = mercoPressArticles;
-      this.newsApiNews = newsApiData.articles || [];
       
-      // Extract relevant text from news
-      const tagesschauText = this.tagesschauNews.slice(0, 20).map((item) => 
-        `Title: ${item.title}\nSummary: ${item.firstSentence}\nTags: ${item.tags?.map((t) => t.tag).join(', ')}\nGeotags: ${item.geotags?.map((t) => t.tag).join(', ')}`
-      ).join('\n\n');
+      // Extract relevant text from news (only titles to save tokens and speed up processing)
+      const tagesschauText = this.tagesschauNews.slice(0, 10).map((item) => 
+        `Title: ${item.title}`
+      ).join('\n');
 
-      const bbcText = this.bbcNews.slice(0, 20).map((item) => 
-        `Title: ${item.title}\nSummary: ${item.summary}`
-      ).join('\n\n');
+      const bbcText = this.bbcNews.slice(0, 10).map((item) => 
+        `Title: ${item.title}`
+      ).join('\n');
 
-      const nytText = this.nytNews.slice(0, 20).map((item) => 
-        `Title: ${item.title}\nSummary: ${item.abstract}\nGeo: ${item.geo_facet?.join(', ')}`
-      ).join('\n\n');
+      const nytText = this.nytNews.slice(0, 10).map((item) => 
+        `Title: ${item.title}`
+      ).join('\n');
 
-      const guardianText = this.guardianNews.slice(0, 20).map((item) => 
-        `Title: ${item.webTitle}\nSection: ${item.sectionName}`
-      ).join('\n\n');
+      const guardianText = this.guardianNews.slice(0, 10).map((item) => 
+        `Title: ${item.webTitle}`
+      ).join('\n');
 
-      const allAfricaText = this.allAfricaNews.slice(0, 20).map((item) => 
-        `Title: ${item.title}\nSummary: ${item.summary}`
-      ).join('\n\n');
+      const allAfricaText = this.allAfricaNews.slice(0, 10).map((item) => 
+        `Title: ${item.title}`
+      ).join('\n');
 
-      const mercoPressText = this.mercoPressNews.slice(0, 20).map((item) => 
-        `Title: ${item.title}\nSummary: ${item.summary}`
-      ).join('\n\n');
-
-      const newsApiText = this.newsApiNews.slice(0, 20).map((item) => 
-        `Title: ${item.title}\nSummary: ${item.description}\nSource: ${item.source.name}`
-      ).join('\n\n');
+      const mercoPressText = this.mercoPressNews.slice(0, 10).map((item) => 
+        `Title: ${item.title}`
+      ).join('\n');
 
       const response = await this.ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Based on the following recent news from Tagesschau, BBC, NYT, The Guardian, AllAfrica, MercoPress, and News API, determine the current geopolitical status of countries worldwide. 
+        contents: `Based on the following recent news headlines from Tagesschau, BBC, NYT, The Guardian, AllAfrica, and MercoPress, determine the current geopolitical status of countries worldwide. 
 Evaluate the status of each country according to EACH individual news source that mentions it.
 Categorize the status into one of four values: "war" (active major conflicts), "tense" (high tension, border skirmishes, significant internal unrest), "watch" (potential for instability, political crisis, emerging issues), or "stable" (specifically mentioned in the news as stable, peaceful, or having positive developments).
 If a source does not mention a country, do not include that source for that country.
@@ -984,11 +899,9 @@ AllAfrica News:
 ${allAfricaText}
 
 MercoPress News:
-${mercoPressText}
-
-News API:
-${newsApiText}`,
+${mercoPressText}`,
         config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
