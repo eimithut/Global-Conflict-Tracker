@@ -59,6 +59,14 @@ interface SourceStatus {
   status: string;
 }
 
+interface TrackerInfo {
+  type: 'Aircraft' | 'Ship';
+  callsign: string;
+  country: string;
+  velocity: number;
+  heading: number;
+}
+
 @Component({
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [DatePipe],
@@ -157,6 +165,41 @@ interface SourceStatus {
                 No Data
               </span>
             }
+          </div>
+        </div>
+      }
+
+      <!-- Tracker Tooltip -->
+      @if (hoveredTracker()) {
+        <div class="absolute top-6 right-6 bg-slate-800/95 p-4 rounded-xl border border-slate-700 text-slate-200 shadow-2xl backdrop-blur-md max-w-xs pointer-events-none z-30 transform transition-all duration-200">
+          <div class="flex items-center gap-3 mb-2">
+            <img [src]="'https://hatscripts.github.io/circle-flags/flags/' + getCountryCode(hoveredTracker()?.country || '') + '.svg'" class="w-8 h-8 rounded-full shadow-sm bg-slate-900 border border-slate-700">
+            <div>
+              <h3 class="font-bold text-lg text-white leading-tight drop-shadow-md">{{ hoveredTracker()?.callsign || 'Unknown' }}</h3>
+              <span class="text-[10px] uppercase tracking-wider font-bold drop-shadow-md" [class]="hoveredTracker()?.type === 'Aircraft' ? 'text-blue-400' : 'text-emerald-400'">
+                Military {{ hoveredTracker()?.type }}
+              </span>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs mt-3 bg-slate-900/50 p-3 rounded-lg border border-slate-700/50">
+            <div class="flex flex-col">
+              <span class="text-slate-500 font-medium">Country</span>
+              <span class="text-white font-semibold truncate">{{ hoveredTracker()?.country }}</span>
+            </div>
+            <div class="flex flex-col">
+              <span class="text-slate-500 font-medium">Speed</span>
+              <span class="text-white font-semibold">{{ hoveredTracker()?.velocity || 0 }} {{ hoveredTracker()?.type === 'Aircraft' ? 'km/h' : 'knots' }}</span>
+            </div>
+            <div class="flex flex-col">
+              <span class="text-slate-500 font-medium">Heading</span>
+              <span class="text-white font-semibold">{{ hoveredTracker()?.heading || 0 }}&deg;</span>
+            </div>
+            <div class="flex flex-col">
+              <span class="text-slate-500 font-medium">Status</span>
+              <span class="text-emerald-400 font-semibold flex items-center gap-1">
+                <div class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></div> Active
+              </span>
+            </div>
           </div>
         </div>
       }
@@ -410,6 +453,7 @@ export class Globe implements OnDestroy {
 
   loading = signal(true);
   hoveredCountry = signal<{name: string, statuses: SourceStatus[]} | null>(null);
+  hoveredTracker = signal<TrackerInfo | null>(null);
   selectedCountry = signal<{name: string, statuses: SourceStatus[]} | null>(null);
   countryDetailsLoading = signal(false);
   countryDetails = signal<string | null>(null);
@@ -604,18 +648,6 @@ export class Globe implements OnDestroy {
     const path = d3.geoPath().projection(projection);
 
     const defs = svg.append('defs');
-    
-    // Add continent drop-shadow filter
-    const dropShadow = defs.append('filter')
-      .attr('id', 'shadow')
-      .attr('x', '-20%').attr('y', '-20%').attr('width', '140%').attr('height', '140%');
-      
-    dropShadow.append('feDropShadow')
-      .attr('dx', '0')
-      .attr('dy', '4')
-      .attr('stdDeviation', '4')
-      .attr('flood-color', '#020617')
-      .attr('flood-opacity', '0.7');
 
     const pattern = defs.append('pattern')
       .attr('id', 'no-data-pattern')
@@ -660,13 +692,27 @@ export class Globe implements OnDestroy {
       .attr('stroke', '#1e293b') // slate-800
       .attr('stroke-width', 0.5);
 
+    // Add extrusion base (3D thickness layer)
+    const baseExtrusion = svg.append('g').attr('class', 'countries-extrusion');
+    baseExtrusion.attr('transform', 'translate(0, 4)');
+
     // Create a group for countries
-    const g = svg.append('g');
+    const g = svg.append('g').attr('class', 'countries-top');
 
     if (this.worldData) {
       this.loading.set(false);
 
-      // Draw countries
+      // Draw extrusion base
+      baseExtrusion.selectAll('path')
+        .data(this.worldData.features)
+        .enter()
+        .append('path')
+        .attr('d', (d: Feature) => path(d as unknown as d3.GeoPermissibleObjects) || '')
+        .attr('fill', '#090e17') // Very dark slate for thick edge
+        .attr('stroke', '#090e17')
+        .attr('stroke-width', 0.5);
+
+      // Draw countries overlay
       g.selectAll('path')
         .data(this.worldData.features)
         .enter()
@@ -702,7 +748,6 @@ export class Globe implements OnDestroy {
         .attr('stroke', '#0f172a') // slate-900
         .attr('stroke-width', 0.5)
         .attr('class', 'transition-colors duration-200')
-        .attr('filter', 'url(#shadow)')
         .on('mouseover', (event: MouseEvent, d: Feature) => {
           const statuses = this.countryStatuses[d.properties.name] || [];
           this.hoveredCountry.set({
@@ -1025,6 +1070,34 @@ ${mercoPressText}`,
   }
 
   // ==== TRACKER METHODS added below ====
+  getCountryCode(country: string): string {
+    const map: Record<string, string> = {
+      'united states': 'us',
+      'russia': 'ru',
+      'china': 'cn',
+      'united kingdom': 'gb',
+      'france': 'fr',
+      'germany': 'de',
+      'ukraine': 'ua',
+      'israel': 'il',
+      'iran, islamic republic of': 'ir',
+      'iran': 'ir',
+      'syria': 'sy',
+      'north korea': 'kp',
+      'south korea': 'kr',
+      'japan': 'jp',
+      'india': 'in',
+      'pakistan': 'pk',
+      'turkey': 'tr',
+      'canada': 'ca',
+      'australia': 'au',
+      'italy': 'it',
+      'spain': 'es',
+      'brazil': 'br'
+    };
+    return map[country?.toLowerCase()] || 'xx';
+  }
+
   toggleAirforce() {
     this.showAirforce.set(!this.showAirforce());
     this.refreshTrackers();
@@ -1068,10 +1141,12 @@ ${mercoPressText}`,
             const militaryPlanes = data.states
               .filter((s: any) => s[5] !== null && s[6] !== null)
               .map((s: any) => ({
-                callsign: (s[1] || '').trim(),
+                callsign: (s[1] || '').trim() || 'Unknown Flight',
                 country: s[2],
                 lng: s[5],
                 lat: s[6],
+                velocity: Math.round((s[9] || 0) * 3.6),
+                heading: Math.round(s[10] || 0),
                 category: s[17] || 0
               }));
             this.aircraftData.set(militaryPlanes);
@@ -1086,21 +1161,21 @@ ${mercoPressText}`,
        // Using simulated realistic ship positions since no free live AIS API for military vessels exists without auth
        const simulatedShips = [];
        // US Navy simulated locations
-       simulatedShips.push({ id: 1, country: 'United States', lng: -76.3, lat: 36.9, type: 'Carrier' });
-       simulatedShips.push({ id: 2, country: 'United States', lng: -117.2, lat: 32.7, type: 'Destroyer' });
-       simulatedShips.push({ id: 3, country: 'United States', lng: 164.5, lat: 10.5, type: 'Cruiser' });
+       simulatedShips.push({ id: 1, callsign: 'USS Nimitz', country: 'United States', lng: -76.3, lat: 36.9, type: 'Carrier', velocity: 22, heading: 45 });
+       simulatedShips.push({ id: 2, callsign: 'USS Cole', country: 'United States', lng: -117.2, lat: 32.7, type: 'Destroyer', velocity: 15, heading: 120 });
+       simulatedShips.push({ id: 3, callsign: 'USS Shiloh', country: 'United States', lng: 164.5, lat: 10.5, type: 'Cruiser', velocity: 18, heading: 80 });
        // Russia Navy
-       simulatedShips.push({ id: 4, country: 'Russia', lng: 33.5, lat: 44.6, type: 'Frigate' });
-       simulatedShips.push({ id: 5, country: 'Russia', lng: 39.8, lat: 64.5, type: 'Submarine' });
+       simulatedShips.push({ id: 4, callsign: 'Amiral Grigorovich', country: 'Russia', lng: 33.5, lat: 44.6, type: 'Frigate', velocity: 12, heading: 210 });
+       simulatedShips.push({ id: 5, callsign: 'Severodvinsk', country: 'Russia', lng: 39.8, lat: 64.5, type: 'Submarine', velocity: 8, heading: 300 });
        // China Navy
-       simulatedShips.push({ id: 6, country: 'China', lng: 119.5, lat: 35.8, type: 'Destroyer' });
-       simulatedShips.push({ id: 7, country: 'China', lng: 109.5, lat: 18.2, type: 'Submarine' });
+       simulatedShips.push({ id: 6, callsign: 'Liaoning', country: 'China', lng: 119.5, lat: 35.8, type: 'Carrier', velocity: 20, heading: 150 });
+       simulatedShips.push({ id: 7, callsign: 'Changzheng 18', country: 'China', lng: 109.5, lat: 18.2, type: 'Submarine', velocity: 10, heading: 190 });
        // UK Navy
-       simulatedShips.push({ id: 8, country: 'United Kingdom', lng: -1.1, lat: 50.8, type: 'Frigate' });
+       simulatedShips.push({ id: 8, callsign: 'HMS Defender', country: 'United Kingdom', lng: -1.1, lat: 50.8, type: 'Destroyer', velocity: 25, heading: 90 });
        // France Navy
-       simulatedShips.push({ id: 9, country: 'France', lng: 5.9, lat: 43.1, type: 'Carrier' });
+       simulatedShips.push({ id: 9, callsign: 'Charles de Gaulle', country: 'France', lng: 5.9, lat: 43.1, type: 'Carrier', velocity: 18, heading: 135 });
        // Germany Navy
-       simulatedShips.push({ id: 10, country: 'Germany', lng: 8.1, lat: 53.5, type: 'Frigate' });
+       simulatedShips.push({ id: 10, callsign: 'Baden-Württemberg', country: 'Germany', lng: 8.1, lat: 53.5, type: 'Frigate', velocity: 14, heading: 330 });
 
        // Add slight movement to simulation
        const currentShips = this.shipData().length > 0 ? this.shipData() : simulatedShips;
@@ -1130,28 +1205,32 @@ ${mercoPressText}`,
         filteredPlanes = filteredPlanes.filter((p, i) => i % 10 === 0);
       }
       
-      const planes = aircraftGroup.selectAll('.plane-dot').data(filteredPlanes.slice(0, 500));
-      planes.enter().append('circle')
-        .attr('r', 1.5)
-        .attr('fill', '#60a5fa') // blue-400
-        .attr('class', 'plane-dot pointer-events-none')
+      const planes = aircraftGroup.selectAll('.plane-icon').data(filteredPlanes.slice(0, 500));
+      planes.enter().append('image')
+        .attr('width', 16).attr('height', 16)
+        .attr('href', (d: any) => `https://hatscripts.github.io/circle-flags/flags/${this.getCountryCode(d.country)}.svg`)
+        .attr('class', 'plane-icon cursor-pointer drop-shadow-md transition-transform duration-200')
+        .on('mouseover', (event: MouseEvent, d: any) => this.hoveredTracker.set({type: 'Aircraft', ...d}))
+        .on('mouseout', () => this.hoveredTracker.set(null))
         .merge(planes as any);
       planes.exit().remove();
     } else {
-      aircraftGroup.selectAll('.plane-dot').remove();
+      aircraftGroup.selectAll('.plane-icon').remove();
     }
     
     if (this.showNavy()) {
       const filteredShips = this.shipData().filter(s => filterCountry === 'ALL' || s.country === filterCountry);
-      const ships = shipGroup.selectAll('.ship-dot').data(filteredShips);
-      ships.enter().append('rect')
-        .attr('width', 3).attr('height', 3)
-        .attr('fill', '#34d399') // emerald-400
-        .attr('class', 'ship-dot pointer-events-none')
+      const ships = shipGroup.selectAll('.ship-icon').data(filteredShips);
+      ships.enter().append('image')
+        .attr('width', 16).attr('height', 16)
+        .attr('href', (d: any) => `https://hatscripts.github.io/circle-flags/flags/${this.getCountryCode(d.country)}.svg`)
+        .attr('class', 'ship-icon cursor-pointer drop-shadow-md transition-transform duration-200')
+        .on('mouseover', (event: MouseEvent, d: any) => this.hoveredTracker.set({type: 'Ship', ...d}))
+        .on('mouseout', () => this.hoveredTracker.set(null))
         .merge(ships as any);
       ships.exit().remove();
     } else {
-      shipGroup.selectAll('.ship-dot').remove();
+      shipGroup.selectAll('.ship-icon').remove();
     }
     
     this.updateTrackersPositions();
@@ -1163,18 +1242,18 @@ ${mercoPressText}`,
     const shipGroup = (this as any).svgShipGroup;
     if (!projection || !aircraftGroup || !shipGroup) return;
     
-    aircraftGroup.selectAll('.plane-dot')
-      .attr('cx', (d: any) => { const p = projection([d.lng, d.lat]); return p ? p[0] : 0; })
-      .attr('cy', (d: any) => { const p = projection([d.lng, d.lat]); return p ? p[1] : 0; })
+    aircraftGroup.selectAll('.plane-icon')
+      .attr('x', (d: any) => { const p = projection([d.lng, d.lat]); return p ? p[0] - 8 : 0; })
+      .attr('y', (d: any) => { const p = projection([d.lng, d.lat]); return p ? p[1] - 8 : 0; })
       .style('display', (d: any) => {
         const pathGenerator = d3.geoPath().projection(projection);
         const geojson = {type: "Point", coordinates: [d.lng, d.lat]};
         return pathGenerator(geojson as any) ? 'block' : 'none';
       });
       
-    shipGroup.selectAll('.ship-dot')
-      .attr('x', (d: any) => { const p = projection([d.lng, d.lat]); return p ? p[0] - 1.5 : 0; })
-      .attr('y', (d: any) => { const p = projection([d.lng, d.lat]); return p ? p[1] - 1.5 : 0; })
+    shipGroup.selectAll('.ship-icon')
+      .attr('x', (d: any) => { const p = projection([d.lng, d.lat]); return p ? p[0] - 8 : 0; })
+      .attr('y', (d: any) => { const p = projection([d.lng, d.lat]); return p ? p[1] - 8 : 0; })
       .style('display', (d: any) => {
         const pathGenerator = d3.geoPath().projection(projection);
         const geojson = {type: "Point", coordinates: [d.lng, d.lat]};
