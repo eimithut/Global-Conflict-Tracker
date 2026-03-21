@@ -1201,60 +1201,30 @@ ${mercoPressText}`,
   
   private async fetchTrackers() {
     if (this.showAirforce()) {
-      let success = false;
-      
-      // Primary: ADSB.lol - Free, no auth, CORS-enabled, global coverage
       try {
-        const res = await fetch('https://api.adsb.lol/v2/all').catch(() => null);
+        // Fetch from our own Cloudflare Pages Function proxy (handles CORS + API fallbacks server-side)
+        const res = await fetch('/api/aircraft').catch(() => null);
         if (res && res.ok) {
-          const text = await res.text();
-          try {
-            const data = JSON.parse(text);
-            if (data && data.ac && Array.isArray(data.ac)) {
-              const planes = data.ac
-                .filter((a: any) => a.lat != null && a.lon != null)
-                .map((a: any) => ({
-                  callsign: (a.flight || a.r || '').trim() || 'Unknown',
-                  country: a.ownOp || this.inferCountryFromReg(a.r || '') || 'Unknown',
-                  lng: a.lon,
-                  lat: a.lat,
-                  velocity: Math.round((a.gs || 0) * 1.852), // knots to km/h
-                  heading: Math.round(a.track || a.true_heading || 0),
-                  category: a.category || ''
-                }));
-              this.aircraftData.set(planes);
-              success = true;
-            }
-          } catch { /* JSON parse failed */ }
+          const data = await res.json().catch(() => null);
+          if (data && data.ac && Array.isArray(data.ac)) {
+            const planes = data.ac
+              .filter((a: any) => a.lat != null && a.lon != null)
+              .map((a: any) => ({
+                callsign: (a.flight || a.r || '').trim() || 'Unknown',
+                country: a.ownOp || this.inferCountryFromReg(a.r || '') || 'Unknown',
+                lng: a.lon,
+                lat: a.lat,
+                velocity: Math.round((a.gs || 0) * 1.852),
+                heading: Math.round(a.track || a.true_heading || 0),
+                category: a.category || ''
+              }));
+            this.aircraftData.set(planes);
+          }
+        } else {
+          console.warn('Aircraft proxy returned', res?.status);
         }
       } catch (e) {
-        console.warn('ADSB.lol fetch failed', e);
-      }
-      
-      // Fallback: OpenSky with auth credentials only (unauthenticated always 429s)
-      if (!success && OPENSKY_USERNAME && OPENSKY_PASSWORD) {
-        try {
-          const headers: HeadersInit = {
-            'Authorization': 'Basic ' + btoa(OPENSKY_USERNAME + ':' + OPENSKY_PASSWORD)
-          };
-          const res = await fetch('https://opensky-network.org/api/states/all', { headers }).catch(() => null);
-          if (res && res.ok) {
-            const text = await res.text();
-            try {
-              const data = JSON.parse(text);
-              if (data && data.states) {
-                this.aircraftData.set(this.parseOpenSkyStates(data.states));
-                success = true;
-              }
-            } catch { /* rate limit text */ }
-          }
-        } catch (e) {
-          console.warn('OpenSky auth fallback failed', e);
-        }
-      }
-
-      if (!success && this.aircraftData().length === 0) {
-        console.error('Aircraft data fetch failed. ADSB.lol may be temporarily unavailable.');
+        console.error('Aircraft fetch failed', e);
       }
     }
     
