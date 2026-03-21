@@ -1124,7 +1124,7 @@ ${mercoPressText}`,
       'spain': 'es',
       'brazil': 'br'
     };
-    return map[country?.toLowerCase()] || 'xx';
+    return map[country?.toLowerCase()] || 'un';
   }
 
   toggleAirforce() {
@@ -1147,7 +1147,7 @@ ${mercoPressText}`,
     if (this.showAirforce() || this.showNavy()) {
       if (!this.trackersInterval) {
         this.fetchTrackers();
-        this.trackersInterval = setInterval(() => this.fetchTrackers(), 10000);
+        this.trackersInterval = setInterval(() => this.fetchTrackers(), 15000);
       } else {
         this.updateTrackersOverlay(); 
       }
@@ -1167,8 +1167,13 @@ ${mercoPressText}`,
         if (OPENSKY_USERNAME && OPENSKY_PASSWORD) {
           headers['Authorization'] = 'Basic ' + btoa(OPENSKY_USERNAME + ':' + OPENSKY_PASSWORD);
         }
-        const res = await fetch('https://opensky-network.org/api/states/all', { headers });
-        if (res.ok) {
+        let res = await fetch('https://opensky-network.org/api/states/all', { headers }).catch(() => null);
+        
+        if (!res || !res.ok) {
+           res = await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent('https://opensky-network.org/api/states/all')).catch(() => null);
+        }
+        
+        if (res && res.ok) {
           const data = await res.json();
           if (data && data.states) {
             const militaryPlanes = data.states
@@ -1260,6 +1265,7 @@ ${mercoPressText}`,
       planes.enter().append('image')
         .attr('width', 16).attr('height', 16)
         .attr('href', (d: any) => `https://hatscripts.github.io/circle-flags/flags/${this.getCountryCode(d.country)}.svg`)
+        .attr('xlink:href', (d: any) => `https://hatscripts.github.io/circle-flags/flags/${this.getCountryCode(d.country)}.svg`)
         .attr('class', 'plane-icon cursor-pointer drop-shadow-md transition-transform duration-200')
         .on('mouseover', (event: MouseEvent, d: any) => this.hoveredTracker.set({type: 'Aircraft', ...d}))
         .on('mouseout', () => this.hoveredTracker.set(null))
@@ -1275,6 +1281,7 @@ ${mercoPressText}`,
       ships.enter().append('image')
         .attr('width', 16).attr('height', 16)
         .attr('href', (d: any) => `https://hatscripts.github.io/circle-flags/flags/${this.getCountryCode(d.country)}.svg`)
+        .attr('xlink:href', (d: any) => `https://hatscripts.github.io/circle-flags/flags/${this.getCountryCode(d.country)}.svg`)
         .attr('class', 'ship-icon cursor-pointer drop-shadow-md transition-transform duration-200')
         .on('mouseover', (event: MouseEvent, d: any) => this.hoveredTracker.set({type: 'Ship', ...d}))
         .on('mouseout', () => this.hoveredTracker.set(null))
