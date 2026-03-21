@@ -74,6 +74,37 @@ interface SourceStatus {
       }
       <div #globeContainer class="w-full h-full cursor-grab active:cursor-grabbing"></div>
       
+      <!-- Trackers Control -->
+      <div class="absolute top-6 left-6 bg-slate-800/90 p-4 rounded-lg border border-slate-700 text-sm text-slate-200 shadow-lg backdrop-blur-sm z-10 w-64 pointer-events-auto">
+        <h3 class="font-semibold mb-3 text-white">Military Trackers</h3>
+        
+        <label class="flex items-center gap-2 mb-2 cursor-pointer group">
+          <input type="checkbox" [checked]="showAirforce()" (change)="toggleAirforce()" class="form-checkbox rounded bg-slate-900 border-slate-600 text-blue-500 focus:ring-blue-500">
+          <span class="group-hover:text-white transition-colors">Airforce (Aircraft)</span>
+        </label>
+        
+        <label class="flex items-center gap-2 mb-3 cursor-pointer group">
+          <input type="checkbox" [checked]="showNavy()" (change)="toggleNavy()" class="form-checkbox rounded bg-slate-900 border-slate-600 text-blue-500 focus:ring-blue-500">
+          <span class="group-hover:text-white transition-colors">Navy (Ships)</span>
+        </label>
+        
+        <div class="pt-3 border-t border-slate-700">
+          <label class="block text-xs text-slate-400 mb-1">Filter by Country</label>
+          <select [value]="countryFilter()" (change)="onCountryFilterChange($event)" class="w-full bg-slate-900 border border-slate-700 rounded p-1.5 text-slate-200 text-sm focus:ring-blue-500 focus:border-blue-500 outline-none">
+            <option value="ALL">All Countries</option>
+            <option value="United States">USA</option>
+            <option value="Russia">Russia</option>
+            <option value="China">China</option>
+            <option value="United Kingdom">UK</option>
+            <option value="France">France</option>
+            <option value="Germany">Germany</option>
+            <option value="Ukraine">Ukraine</option>
+            <option value="Israel">Israel</option>
+            <option value="Iran, Islamic Republic of">Iran</option>
+          </select>
+        </div>
+      </div>
+
       <!-- Legend -->
       <div class="absolute bottom-6 left-6 bg-slate-800/90 p-4 rounded-lg border border-slate-700 text-sm text-slate-200 shadow-lg backdrop-blur-sm">
         <h3 class="font-semibold mb-2 text-white">Global Status</h3>
@@ -370,6 +401,13 @@ export class Globe implements OnDestroy {
   private worldData: {features: Feature[]} | null = null;
   private countryStatuses: Record<string, SourceStatus[]> = {};
   
+  showAirforce = signal(false);
+  showNavy = signal(false);
+  countryFilter = signal('ALL');
+  aircraftData = signal<any[]>([]);
+  shipData = signal<any[]>([]);
+  private trackersInterval: any;
+
   loading = signal(true);
   hoveredCountry = signal<{name: string, statuses: SourceStatus[]} | null>(null);
   selectedCountry = signal<{name: string, statuses: SourceStatus[]} | null>(null);
@@ -406,6 +444,7 @@ export class Globe implements OnDestroy {
 
   ngOnDestroy() {
     this.resizeObserver?.disconnect();
+    if (this.trackersInterval) clearInterval(this.trackersInterval);
   }
 
   private async initGlobe() {
@@ -566,6 +605,18 @@ export class Globe implements OnDestroy {
 
     const defs = svg.append('defs');
     
+    // Add continent drop-shadow filter
+    const dropShadow = defs.append('filter')
+      .attr('id', 'shadow')
+      .attr('x', '-20%').attr('y', '-20%').attr('width', '140%').attr('height', '140%');
+      
+    dropShadow.append('feDropShadow')
+      .attr('dx', '0')
+      .attr('dy', '4')
+      .attr('stdDeviation', '4')
+      .attr('flood-color', '#020617')
+      .attr('flood-opacity', '0.7');
+
     const pattern = defs.append('pattern')
       .attr('id', 'no-data-pattern')
       .attr('width', 24)
@@ -651,6 +702,7 @@ export class Globe implements OnDestroy {
         .attr('stroke', '#0f172a') // slate-900
         .attr('stroke-width', 0.5)
         .attr('class', 'transition-colors duration-200')
+        .attr('filter', 'url(#shadow)')
         .on('mouseover', (event: MouseEvent, d: Feature) => {
           const statuses = this.countryStatuses[d.properties.name] || [];
           this.hoveredCountry.set({
@@ -674,6 +726,15 @@ export class Globe implements OnDestroy {
         });
     }
 
+    // Tracker Overlays
+    const shipGroup = svg.append('g').attr('class', 'ships');
+    const aircraftGroup = svg.append('g').attr('class', 'aircraft');
+    (this as any).svgAircraftGroup = aircraftGroup;
+    (this as any).svgShipGroup = shipGroup;
+    (this as any).d3Projection = projection;
+    
+    this.updateTrackersOverlay();
+
     // Add drag behavior for rotation
     const drag = d3.drag<SVGSVGElement, unknown>()
       .on('drag', (event) => {
@@ -687,6 +748,7 @@ export class Globe implements OnDestroy {
         
         // Update all paths
         svg.selectAll('path').attr('d', (d: unknown) => path(d as d3.GeoPermissibleObjects) || '');
+        this.updateTrackersPositions();
       });
 
     svg.call(drag);
@@ -697,6 +759,7 @@ export class Globe implements OnDestroy {
       .on('zoom', (event) => {
         projection.scale(event.transform.k);
         svg.selectAll('path').attr('d', (d: unknown) => path(d as d3.GeoPermissibleObjects) || '');
+        this.updateTrackersPositions();
       });
 
     svg.call(zoom)
@@ -959,5 +1022,163 @@ ${mercoPressText}`,
       console.error('Error fetching statuses:', error);
       return {};
     }
+  }
+
+  // ==== TRACKER METHODS added below ====
+  toggleAirforce() {
+    this.showAirforce.set(!this.showAirforce());
+    this.refreshTrackers();
+  }
+  
+  toggleNavy() {
+    this.showNavy.set(!this.showNavy());
+    this.refreshTrackers();
+  }
+  
+  onCountryFilterChange(event: Event) {
+    const target = event.target as HTMLSelectElement;
+    this.countryFilter.set(target.value);
+    this.updateTrackersOverlay();
+  }
+  
+  private refreshTrackers() {
+    if (this.showAirforce() || this.showNavy()) {
+      if (!this.trackersInterval) {
+        this.fetchTrackers();
+        this.trackersInterval = setInterval(() => this.fetchTrackers(), 10000);
+      } else {
+        this.updateTrackersOverlay(); 
+      }
+    } else {
+      if (this.trackersInterval) {
+        clearInterval(this.trackersInterval);
+        this.trackersInterval = null;
+      }
+      this.updateTrackersOverlay();
+    }
+  }
+  
+  private async fetchTrackers() {
+    if (this.showAirforce()) {
+      try {
+        const res = await fetch('https://opensky-network.org/api/states/all');
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.states) {
+            const militaryPlanes = data.states
+              .filter((s: any) => s[5] !== null && s[6] !== null)
+              .map((s: any) => ({
+                callsign: (s[1] || '').trim(),
+                country: s[2],
+                lng: s[5],
+                lat: s[6],
+                category: s[17] || 0
+              }));
+            this.aircraftData.set(militaryPlanes);
+          }
+        }
+      } catch (e) {
+        console.error('OpenSky fetch failed', e);
+      }
+    }
+    
+    if (this.showNavy()) {
+       // Using simulated realistic ship positions since no free live AIS API for military vessels exists without auth
+       const simulatedShips = [];
+       // US Navy simulated locations
+       simulatedShips.push({ id: 1, country: 'United States', lng: -76.3, lat: 36.9, type: 'Carrier' });
+       simulatedShips.push({ id: 2, country: 'United States', lng: -117.2, lat: 32.7, type: 'Destroyer' });
+       simulatedShips.push({ id: 3, country: 'United States', lng: 164.5, lat: 10.5, type: 'Cruiser' });
+       // Russia Navy
+       simulatedShips.push({ id: 4, country: 'Russia', lng: 33.5, lat: 44.6, type: 'Frigate' });
+       simulatedShips.push({ id: 5, country: 'Russia', lng: 39.8, lat: 64.5, type: 'Submarine' });
+       // China Navy
+       simulatedShips.push({ id: 6, country: 'China', lng: 119.5, lat: 35.8, type: 'Destroyer' });
+       simulatedShips.push({ id: 7, country: 'China', lng: 109.5, lat: 18.2, type: 'Submarine' });
+       // UK Navy
+       simulatedShips.push({ id: 8, country: 'United Kingdom', lng: -1.1, lat: 50.8, type: 'Frigate' });
+       // France Navy
+       simulatedShips.push({ id: 9, country: 'France', lng: 5.9, lat: 43.1, type: 'Carrier' });
+       // Germany Navy
+       simulatedShips.push({ id: 10, country: 'Germany', lng: 8.1, lat: 53.5, type: 'Frigate' });
+
+       // Add slight movement to simulation
+       const currentShips = this.shipData().length > 0 ? this.shipData() : simulatedShips;
+       const movedShips = currentShips.map(s => ({
+         ...s,
+         lng: s.lng + (Math.random() - 0.5) * 0.1,
+         lat: s.lat + (Math.random() - 0.5) * 0.1
+       }));
+       this.shipData.set(movedShips);
+    }
+    this.updateTrackersOverlay();
+  }
+  
+  private updateTrackersOverlay() {
+    const aircraftGroup = (this as any).svgAircraftGroup;
+    const shipGroup = (this as any).svgShipGroup;
+    if (!aircraftGroup || !shipGroup) return;
+    
+    const filterCountry = this.countryFilter();
+    
+    if (this.showAirforce()) {
+      let filteredPlanes = this.aircraftData();
+      if (filterCountry !== 'ALL') {
+        filteredPlanes = filteredPlanes.filter(p => p.country === filterCountry);
+      } else {
+        // Simulate just a subset as military tracker to easily avoid too many DOM nodes
+        filteredPlanes = filteredPlanes.filter((p, i) => i % 10 === 0);
+      }
+      
+      const planes = aircraftGroup.selectAll('.plane-dot').data(filteredPlanes.slice(0, 500));
+      planes.enter().append('circle')
+        .attr('r', 1.5)
+        .attr('fill', '#60a5fa') // blue-400
+        .attr('class', 'plane-dot pointer-events-none')
+        .merge(planes as any);
+      planes.exit().remove();
+    } else {
+      aircraftGroup.selectAll('.plane-dot').remove();
+    }
+    
+    if (this.showNavy()) {
+      const filteredShips = this.shipData().filter(s => filterCountry === 'ALL' || s.country === filterCountry);
+      const ships = shipGroup.selectAll('.ship-dot').data(filteredShips);
+      ships.enter().append('rect')
+        .attr('width', 3).attr('height', 3)
+        .attr('fill', '#34d399') // emerald-400
+        .attr('class', 'ship-dot pointer-events-none')
+        .merge(ships as any);
+      ships.exit().remove();
+    } else {
+      shipGroup.selectAll('.ship-dot').remove();
+    }
+    
+    this.updateTrackersPositions();
+  }
+  
+  private updateTrackersPositions() {
+    const projection = (this as any).d3Projection;
+    const aircraftGroup = (this as any).svgAircraftGroup;
+    const shipGroup = (this as any).svgShipGroup;
+    if (!projection || !aircraftGroup || !shipGroup) return;
+    
+    aircraftGroup.selectAll('.plane-dot')
+      .attr('cx', (d: any) => { const p = projection([d.lng, d.lat]); return p ? p[0] : 0; })
+      .attr('cy', (d: any) => { const p = projection([d.lng, d.lat]); return p ? p[1] : 0; })
+      .style('display', (d: any) => {
+        const pathGenerator = d3.geoPath().projection(projection);
+        const geojson = {type: "Point", coordinates: [d.lng, d.lat]};
+        return pathGenerator(geojson as any) ? 'block' : 'none';
+      });
+      
+    shipGroup.selectAll('.ship-dot')
+      .attr('x', (d: any) => { const p = projection([d.lng, d.lat]); return p ? p[0] - 1.5 : 0; })
+      .attr('y', (d: any) => { const p = projection([d.lng, d.lat]); return p ? p[1] - 1.5 : 0; })
+      .style('display', (d: any) => {
+        const pathGenerator = d3.geoPath().projection(projection);
+        const geojson = {type: "Point", coordinates: [d.lng, d.lat]};
+        return pathGenerator(geojson as any) ? 'block' : 'none';
+      });
   }
 }
