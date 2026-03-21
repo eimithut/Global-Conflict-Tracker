@@ -3,18 +3,6 @@ import {DatePipe} from '@angular/common';
 import * as d3 from 'd3';
 import {GoogleGenAI, Type, ThinkingLevel} from '@google/genai';
 
-// ==========================================
-// API CONFIGURATION: HARDCODE YOUR KEYS HERE
-// ==========================================
-// OpenSky Network (Free live planes, heavily rate-limited without account. Required for active scanning)
-// Sign up at: https://opensky-network.org/
-const OPENSKY_USERNAME = ''; 
-const OPENSKY_PASSWORD = '';
-
-// Live Ships (AISStream WebSocket API)
-// Get your free API key at: https://aisstream.io/
-const AISSTREAM_API_KEY = ''; 
-
 interface Feature {
   properties: {
     name: string;
@@ -71,14 +59,6 @@ interface SourceStatus {
   status: string;
 }
 
-interface TrackerInfo {
-  type: 'Aircraft' | 'Ship';
-  callsign: string;
-  country: string;
-  velocity: number;
-  heading: number;
-}
-
 @Component({
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [DatePipe],
@@ -94,37 +74,6 @@ interface TrackerInfo {
       }
       <div #globeContainer class="w-full h-full cursor-grab active:cursor-grabbing"></div>
       
-      <!-- Trackers Control -->
-      <div class="absolute top-6 left-6 bg-slate-800/90 p-4 rounded-lg border border-slate-700 text-sm text-slate-200 shadow-lg backdrop-blur-sm z-10 w-64 pointer-events-auto">
-        <h3 class="font-semibold mb-3 text-white">Military Trackers</h3>
-        
-        <label class="flex items-center gap-2 mb-2 cursor-pointer group">
-          <input type="checkbox" [checked]="showAirforce()" (change)="toggleAirforce()" class="form-checkbox rounded bg-slate-900 border-slate-600 text-blue-500 focus:ring-blue-500">
-          <span class="group-hover:text-white transition-colors">Airforce (Aircraft)</span>
-        </label>
-        
-        <label class="flex items-center gap-2 mb-3 cursor-pointer group">
-          <input type="checkbox" [checked]="showNavy()" (change)="toggleNavy()" class="form-checkbox rounded bg-slate-900 border-slate-600 text-blue-500 focus:ring-blue-500">
-          <span class="group-hover:text-white transition-colors">Navy (Ships)</span>
-        </label>
-        
-        <div class="pt-3 border-t border-slate-700">
-          <label class="block text-xs text-slate-400 mb-1">Filter by Country</label>
-          <select [value]="countryFilter()" (change)="onCountryFilterChange($event)" class="w-full bg-slate-900 border border-slate-700 rounded p-1.5 text-slate-200 text-sm focus:ring-blue-500 focus:border-blue-500 outline-none">
-            <option value="ALL">All Countries</option>
-            <option value="United States">USA</option>
-            <option value="Russia">Russia</option>
-            <option value="China">China</option>
-            <option value="United Kingdom">UK</option>
-            <option value="France">France</option>
-            <option value="Germany">Germany</option>
-            <option value="Ukraine">Ukraine</option>
-            <option value="Israel">Israel</option>
-            <option value="Iran, Islamic Republic of">Iran</option>
-          </select>
-        </div>
-      </div>
-
       <!-- Legend -->
       <div class="absolute bottom-6 left-6 bg-slate-800/90 p-4 rounded-lg border border-slate-700 text-sm text-slate-200 shadow-lg backdrop-blur-sm">
         <h3 class="font-semibold mb-2 text-white">Global Status</h3>
@@ -177,41 +126,6 @@ interface TrackerInfo {
                 No Data
               </span>
             }
-          </div>
-        </div>
-      }
-
-      <!-- Tracker Tooltip -->
-      @if (hoveredTracker()) {
-        <div class="absolute top-6 right-6 bg-slate-800/95 p-4 rounded-xl border border-slate-700 text-slate-200 shadow-2xl backdrop-blur-md max-w-xs pointer-events-none z-30 transform transition-all duration-200">
-          <div class="flex items-center gap-3 mb-2">
-            <img [src]="'https://hatscripts.github.io/circle-flags/flags/' + getCountryCode(hoveredTracker()?.country || '') + '.svg'" class="w-8 h-8 rounded-full shadow-sm bg-slate-900 border border-slate-700">
-            <div>
-              <h3 class="font-bold text-lg text-white leading-tight drop-shadow-md">{{ hoveredTracker()?.callsign || 'Unknown' }}</h3>
-              <span class="text-[10px] uppercase tracking-wider font-bold drop-shadow-md" [class]="hoveredTracker()?.type === 'Aircraft' ? 'text-blue-400' : 'text-emerald-400'">
-                Military {{ hoveredTracker()?.type }}
-              </span>
-            </div>
-          </div>
-          <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs mt-3 bg-slate-900/50 p-3 rounded-lg border border-slate-700/50">
-            <div class="flex flex-col">
-              <span class="text-slate-500 font-medium">Country</span>
-              <span class="text-white font-semibold truncate">{{ hoveredTracker()?.country }}</span>
-            </div>
-            <div class="flex flex-col">
-              <span class="text-slate-500 font-medium">Speed</span>
-              <span class="text-white font-semibold">{{ hoveredTracker()?.velocity || 0 }} {{ hoveredTracker()?.type === 'Aircraft' ? 'km/h' : 'knots' }}</span>
-            </div>
-            <div class="flex flex-col">
-              <span class="text-slate-500 font-medium">Heading</span>
-              <span class="text-white font-semibold">{{ hoveredTracker()?.heading || 0 }}&deg;</span>
-            </div>
-            <div class="flex flex-col">
-              <span class="text-slate-500 font-medium">Status</span>
-              <span class="text-emerald-400 font-semibold flex items-center gap-1">
-                <div class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></div> Active
-              </span>
-            </div>
           </div>
         </div>
       }
@@ -456,18 +370,8 @@ export class Globe implements OnDestroy {
   private worldData: {features: Feature[]} | null = null;
   private countryStatuses: Record<string, SourceStatus[]> = {};
   
-  showAirforce = signal(false);
-  showNavy = signal(false);
-  countryFilter = signal('ALL');
-  aircraftData = signal<any[]>([]);
-  shipData = signal<any[]>([]);
-  private trackersInterval: any;
-  private shipSocket: WebSocket | null = null;
-  private shipDataMap = new Map<number, any>();
-
   loading = signal(true);
   hoveredCountry = signal<{name: string, statuses: SourceStatus[]} | null>(null);
-  hoveredTracker = signal<TrackerInfo | null>(null);
   selectedCountry = signal<{name: string, statuses: SourceStatus[]} | null>(null);
   countryDetailsLoading = signal(false);
   countryDetails = signal<string | null>(null);
@@ -502,8 +406,6 @@ export class Globe implements OnDestroy {
 
   ngOnDestroy() {
     this.resizeObserver?.disconnect();
-    if (this.trackersInterval) clearInterval(this.trackersInterval);
-    if (this.shipSocket) this.shipSocket.close();
   }
 
   private async initGlobe() {
@@ -663,7 +565,7 @@ export class Globe implements OnDestroy {
     const path = d3.geoPath().projection(projection);
 
     const defs = svg.append('defs');
-
+    
     const pattern = defs.append('pattern')
       .attr('id', 'no-data-pattern')
       .attr('width', 24)
@@ -707,27 +609,13 @@ export class Globe implements OnDestroy {
       .attr('stroke', '#1e293b') // slate-800
       .attr('stroke-width', 0.5);
 
-    // Add extrusion base (3D thickness layer)
-    const baseExtrusion = svg.append('g').attr('class', 'countries-extrusion');
-    baseExtrusion.attr('transform', 'translate(0, 4)');
-
     // Create a group for countries
-    const g = svg.append('g').attr('class', 'countries-top');
+    const g = svg.append('g');
 
     if (this.worldData) {
       this.loading.set(false);
 
-      // Draw extrusion base
-      baseExtrusion.selectAll('path')
-        .data(this.worldData.features)
-        .enter()
-        .append('path')
-        .attr('d', (d: Feature) => path(d as unknown as d3.GeoPermissibleObjects) || '')
-        .attr('fill', '#090e17') // Very dark slate for thick edge
-        .attr('stroke', '#090e17')
-        .attr('stroke-width', 0.5);
-
-      // Draw countries overlay
+      // Draw countries
       g.selectAll('path')
         .data(this.worldData.features)
         .enter()
@@ -786,15 +674,6 @@ export class Globe implements OnDestroy {
         });
     }
 
-    // Tracker Overlays
-    const shipGroup = svg.append('g').attr('class', 'ships');
-    const aircraftGroup = svg.append('g').attr('class', 'aircraft');
-    (this as any).svgAircraftGroup = aircraftGroup;
-    (this as any).svgShipGroup = shipGroup;
-    (this as any).d3Projection = projection;
-    
-    this.updateTrackersOverlay();
-
     // Add drag behavior for rotation
     const drag = d3.drag<SVGSVGElement, unknown>()
       .on('drag', (event) => {
@@ -808,7 +687,6 @@ export class Globe implements OnDestroy {
         
         // Update all paths
         svg.selectAll('path').attr('d', (d: unknown) => path(d as d3.GeoPermissibleObjects) || '');
-        this.updateTrackersPositions();
       });
 
     svg.call(drag);
@@ -819,7 +697,6 @@ export class Globe implements OnDestroy {
       .on('zoom', (event) => {
         projection.scale(event.transform.k);
         svg.selectAll('path').attr('d', (d: unknown) => path(d as d3.GeoPermissibleObjects) || '');
-        this.updateTrackersPositions();
       });
 
     svg.call(zoom)
@@ -1082,276 +959,5 @@ ${mercoPressText}`,
       console.error('Error fetching statuses:', error);
       return {};
     }
-  }
-
-  // ==== TRACKER METHODS added below ====
-  getCountryFromMMSI(mmsi: number): string {
-    const mid = Math.floor(mmsi / 1000000);
-    if (mid >= 366 && mid <= 369) return 'United States';
-    if (mid === 273) return 'Russia';
-    if (mid >= 412 && mid <= 414) return 'China';
-    if (mid >= 232 && mid <= 235) return 'United Kingdom';
-    if (mid >= 226 && mid <= 228) return 'France';
-    if (mid === 211 || mid === 218) return 'Germany';
-    if (mid === 272) return 'Ukraine';
-    if (mid === 428) return 'Israel';
-    if (mid === 422) return 'Iran, Islamic Republic of';
-    return 'Unknown';
-  }
-
-  getCountryCode(country: string): string {
-    const map: Record<string, string> = {
-      'united states': 'us',
-      'russia': 'ru',
-      'china': 'cn',
-      'united kingdom': 'gb',
-      'france': 'fr',
-      'germany': 'de',
-      'ukraine': 'ua',
-      'israel': 'il',
-      'iran, islamic republic of': 'ir',
-      'iran': 'ir',
-      'syria': 'sy',
-      'north korea': 'kp',
-      'south korea': 'kr',
-      'japan': 'jp',
-      'india': 'in',
-      'pakistan': 'pk',
-      'turkey': 'tr',
-      'canada': 'ca',
-      'australia': 'au',
-      'italy': 'it',
-      'spain': 'es',
-      'brazil': 'br'
-    };
-    return map[country?.toLowerCase()] || 'un';
-  }
-
-  private parseOpenSkyStates(states: any[]): any[] {
-    return states
-      .filter((s: any) => s[5] !== null && s[6] !== null)
-      .map((s: any) => ({
-        callsign: (s[1] || '').trim() || 'Unknown Flight',
-        country: s[2],
-        lng: s[5],
-        lat: s[6],
-        velocity: Math.round((s[9] || 0) * 3.6),
-        heading: Math.round(s[10] || 0),
-        category: s[17] || 0
-      }));
-  }
-
-  private inferCountryFromReg(reg: string): string {
-    if (!reg) return '';
-    const r = reg.toUpperCase();
-    if (r.startsWith('N')) return 'United States';
-    if (r.startsWith('G-')) return 'United Kingdom';
-    if (r.startsWith('F-')) return 'France';
-    if (r.startsWith('D-')) return 'Germany';
-    if (r.startsWith('RA-') || r.startsWith('RF-')) return 'Russia';
-    if (r.startsWith('B-') && r.length === 5) return 'China';
-    if (r.startsWith('JA')) return 'Japan';
-    if (r.startsWith('VT-')) return 'India';
-    if (r.startsWith('UR-')) return 'Ukraine';
-    if (r.startsWith('4X-')) return 'Israel';
-    if (r.startsWith('TC-')) return 'Turkey';
-    if (r.startsWith('C-')) return 'Canada';
-    if (r.startsWith('VH-')) return 'Australia';
-    if (r.startsWith('I-')) return 'Italy';
-    if (r.startsWith('EC-')) return 'Spain';
-    if (r.startsWith('PP-') || r.startsWith('PR-') || r.startsWith('PT-') || r.startsWith('PS-')) return 'Brazil';
-    if (r.startsWith('HL')) return 'South Korea';
-    if (r.startsWith('AP-')) return 'Pakistan';
-    if (r.startsWith('EP-')) return 'Iran';
-    return '';
-  }
-
-  toggleAirforce() {
-    this.showAirforce.set(!this.showAirforce());
-    this.refreshTrackers();
-  }
-  
-  toggleNavy() {
-    this.showNavy.set(!this.showNavy());
-    this.refreshTrackers();
-  }
-  
-  onCountryFilterChange(event: Event) {
-    const target = event.target as HTMLSelectElement;
-    this.countryFilter.set(target.value);
-    this.updateTrackersOverlay();
-  }
-  
-  private refreshTrackers() {
-    if (this.showAirforce() || this.showNavy()) {
-      if (!this.trackersInterval) {
-        this.fetchTrackers();
-        this.trackersInterval = setInterval(() => this.fetchTrackers(), 15000);
-      } else {
-        this.updateTrackersOverlay(); 
-      }
-    } else {
-      if (this.trackersInterval) {
-        clearInterval(this.trackersInterval);
-        this.trackersInterval = null;
-      }
-      this.updateTrackersOverlay();
-    }
-  }
-  
-  private async fetchTrackers() {
-    if (this.showAirforce()) {
-      try {
-        // Fetch from our own Cloudflare Pages Function proxy (handles CORS + API fallbacks server-side)
-        const res = await fetch('/api/aircraft').catch(() => null);
-        if (res && res.ok) {
-          const data = await res.json().catch(() => null);
-          if (data && data.ac && Array.isArray(data.ac)) {
-            const planes = data.ac
-              .filter((a: any) => a.lat != null && a.lon != null)
-              .map((a: any) => ({
-                callsign: (a.flight || a.r || '').trim() || 'Unknown',
-                country: a.ownOp || this.inferCountryFromReg(a.r || '') || 'Unknown',
-                lng: a.lon,
-                lat: a.lat,
-                velocity: Math.round((a.gs || 0) * 1.852),
-                heading: Math.round(a.track || a.true_heading || 0),
-                category: a.category || ''
-              }));
-            this.aircraftData.set(planes);
-          }
-        } else {
-          console.warn('Aircraft proxy returned', res?.status);
-        }
-      } catch (e) {
-        console.error('Aircraft fetch failed', e);
-      }
-    }
-    
-    if (this.showNavy()) {
-       if (!this.shipSocket && AISSTREAM_API_KEY) {
-           this.shipSocket = new WebSocket("wss://stream.aisstream.io/v0/stream");
-           this.shipSocket.onopen = () => {
-               this.shipSocket?.send(JSON.stringify({
-                   APIKey: AISSTREAM_API_KEY,
-                   BoundingBoxes: [[[-90, -180], [90, 180]]],
-                   FilterMessageTypes: ["PositionReport"]
-               }));
-           };
-           this.shipSocket.onmessage = (event) => {
-               const msg = JSON.parse(event.data);
-               if (msg["MessageType"] === "PositionReport") {
-                   const report = msg["Message"]["PositionReport"];
-                   const meta = msg["MetaData"];
-                   const ship = {
-                       id: report["UserID"],
-                       callsign: meta["ShipName"] && meta["ShipName"].trim() !== '' ? meta["ShipName"].trim() : 'Unknown Vessel',
-                       country: this.getCountryFromMMSI(report["UserID"]),
-                       lng: report["Longitude"],
-                       lat: report["Latitude"],
-                       velocity: report["Sog"] || 0,
-                       heading: report["TrueHeading"] || 0,
-                       type: 'Vessel'
-                   };
-                   this.shipDataMap.set(ship.id, ship);
-                   // Keep memory bounded
-                   if (this.shipDataMap.size > 2000) {
-                       const firstKey = this.shipDataMap.keys().next().value;
-                       if (firstKey !== undefined) this.shipDataMap.delete(firstKey);
-                   }
-               }
-           };
-           this.shipSocket.onerror = (e) => console.error("AISStream Error", e);
-           this.shipSocket.onclose = () => { this.shipSocket = null; };
-       }
-       // Update shipData for D3 to render
-       this.shipData.set(Array.from(this.shipDataMap.values()));
-    } else if (!AISSTREAM_API_KEY && this.showNavy()) {
-       console.warn('Navy tracking requires an AISStream API key. Get your free key at https://aisstream.io/ and paste it into AISSTREAM_API_KEY at the top of globe.ts');
-       this.shipData.set([]);
-    } else {
-       if (this.shipSocket) {
-           this.shipSocket.close();
-           this.shipSocket = null;
-       }
-       this.shipDataMap.clear();
-       this.shipData.set([]);
-    }
-    this.updateTrackersOverlay();
-  }
-  
-  private updateTrackersOverlay() {
-    const aircraftGroup = (this as any).svgAircraftGroup;
-    const shipGroup = (this as any).svgShipGroup;
-    if (!aircraftGroup || !shipGroup) return;
-    
-    const filterCountry = this.countryFilter();
-    
-    if (this.showAirforce()) {
-      let filteredPlanes = this.aircraftData();
-      if (filterCountry !== 'ALL') {
-        filteredPlanes = filteredPlanes.filter(p => p.country === filterCountry);
-      }
-      
-      // Sort deterministically to maintain D3 node consistency up to the limit without disappearing 
-      filteredPlanes.sort((a, b) => a.callsign.localeCompare(b.callsign));
-
-      // Key function added to D3 data() to bind explicitly to callsign! This solves the disappearing bug.
-      const planes = aircraftGroup.selectAll('.plane-icon').data(filteredPlanes.slice(0, 3000), (d: any) => d.callsign + d.lat);
-      planes.enter().append('image')
-        .attr('width', 16).attr('height', 16)
-        .attr('href', (d: any) => `https://hatscripts.github.io/circle-flags/flags/${this.getCountryCode(d.country)}.svg`)
-        .attr('xlink:href', (d: any) => `https://hatscripts.github.io/circle-flags/flags/${this.getCountryCode(d.country)}.svg`)
-        .attr('class', 'plane-icon cursor-pointer drop-shadow-md transition-transform duration-200')
-        .on('mouseover', (event: MouseEvent, d: any) => this.hoveredTracker.set({type: 'Aircraft', ...d}))
-        .on('mouseout', () => this.hoveredTracker.set(null))
-        .merge(planes as any);
-      planes.exit().remove();
-    } else {
-      aircraftGroup.selectAll('.plane-icon').remove();
-    }
-    
-    if (this.showNavy()) {
-      const filteredShips = this.shipData().filter(s => filterCountry === 'ALL' || s.country === filterCountry);
-      const ships = shipGroup.selectAll('.ship-icon').data(filteredShips);
-      ships.enter().append('image')
-        .attr('width', 16).attr('height', 16)
-        .attr('href', (d: any) => `https://hatscripts.github.io/circle-flags/flags/${this.getCountryCode(d.country)}.svg`)
-        .attr('xlink:href', (d: any) => `https://hatscripts.github.io/circle-flags/flags/${this.getCountryCode(d.country)}.svg`)
-        .attr('class', 'ship-icon cursor-pointer drop-shadow-md transition-transform duration-200')
-        .on('mouseover', (event: MouseEvent, d: any) => this.hoveredTracker.set({type: 'Ship', ...d}))
-        .on('mouseout', () => this.hoveredTracker.set(null))
-        .merge(ships as any);
-      ships.exit().remove();
-    } else {
-      shipGroup.selectAll('.ship-icon').remove();
-    }
-    
-    this.updateTrackersPositions();
-  }
-  
-  private updateTrackersPositions() {
-    const projection = (this as any).d3Projection;
-    const aircraftGroup = (this as any).svgAircraftGroup;
-    const shipGroup = (this as any).svgShipGroup;
-    if (!projection || !aircraftGroup || !shipGroup) return;
-    
-    aircraftGroup.selectAll('.plane-icon')
-      .attr('x', (d: any) => { const p = projection([d.lng, d.lat]); return p ? p[0] - 8 : 0; })
-      .attr('y', (d: any) => { const p = projection([d.lng, d.lat]); return p ? p[1] - 8 : 0; })
-      .style('display', (d: any) => {
-        const pathGenerator = d3.geoPath().projection(projection);
-        const geojson = {type: "Point", coordinates: [d.lng, d.lat]};
-        return pathGenerator(geojson as any) ? 'block' : 'none';
-      });
-      
-    shipGroup.selectAll('.ship-icon')
-      .attr('x', (d: any) => { const p = projection([d.lng, d.lat]); return p ? p[0] - 8 : 0; })
-      .attr('y', (d: any) => { const p = projection([d.lng, d.lat]); return p ? p[1] - 8 : 0; })
-      .style('display', (d: any) => {
-        const pathGenerator = d3.geoPath().projection(projection);
-        const geojson = {type: "Point", coordinates: [d.lng, d.lat]};
-        return pathGenerator(geojson as any) ? 'block' : 'none';
-      });
   }
 }
