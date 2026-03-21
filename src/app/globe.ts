@@ -1127,6 +1127,20 @@ ${mercoPressText}`,
     return map[country?.toLowerCase()] || 'un';
   }
 
+  private parseOpenSkyStates(states: any[]): any[] {
+    return states
+      .filter((s: any) => s[5] !== null && s[6] !== null)
+      .map((s: any) => ({
+        callsign: (s[1] || '').trim() || 'Unknown Flight',
+        country: s[2],
+        lng: s[5],
+        lat: s[6],
+        velocity: Math.round((s[9] || 0) * 3.6),
+        heading: Math.round(s[10] || 0),
+        category: s[17] || 0
+      }));
+  }
+
   toggleAirforce() {
     this.showAirforce.set(!this.showAirforce());
     this.refreshTrackers();
@@ -1162,36 +1176,71 @@ ${mercoPressText}`,
   
   private async fetchTrackers() {
     if (this.showAirforce()) {
+      let success = false;
+      
+      // Attempt 1: Direct OpenSky with optional auth
       try {
         const headers: HeadersInit = {};
         if (OPENSKY_USERNAME && OPENSKY_PASSWORD) {
           headers['Authorization'] = 'Basic ' + btoa(OPENSKY_USERNAME + ':' + OPENSKY_PASSWORD);
         }
-        let res = await fetch('https://opensky-network.org/api/states/all', { headers }).catch(() => null);
-        
-        if (!res || !res.ok) {
-           res = await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent('https://opensky-network.org/api/states/all')).catch(() => null);
-        }
-        
+        const res = await fetch('https://opensky-network.org/api/states/all', { headers }).catch(() => null);
         if (res && res.ok) {
-          const data = await res.json();
-          if (data && data.states) {
-            const militaryPlanes = data.states
-              .filter((s: any) => s[5] !== null && s[6] !== null)
-              .map((s: any) => ({
-                callsign: (s[1] || '').trim() || 'Unknown Flight',
-                country: s[2],
-                lng: s[5],
-                lat: s[6],
-                velocity: Math.round((s[9] || 0) * 3.6),
-                heading: Math.round(s[10] || 0),
-                category: s[17] || 0
-              }));
-            this.aircraftData.set(militaryPlanes);
-          }
+          const text = await res.text();
+          try {
+            const data = JSON.parse(text);
+            if (data && data.states) {
+              this.aircraftData.set(this.parseOpenSkyStates(data.states));
+              success = true;
+            }
+          } catch { /* non-JSON response (e.g. rate limit text) */ }
         }
       } catch (e) {
-        console.error('OpenSky fetch failed', e);
+        console.warn('OpenSky direct failed', e);
+      }
+      
+      // Attempt 2: allorigins.win JSON-wrapped proxy
+      if (!success) {
+        try {
+          const res = await fetch('https://api.allorigins.win/get?url=' + encodeURIComponent('https://opensky-network.org/api/states/all')).catch(() => null);
+          if (res && res.ok) {
+            const wrapper = await res.json().catch(() => null);
+            if (wrapper && wrapper.contents) {
+              try {
+                const data = JSON.parse(wrapper.contents);
+                if (data && data.states) {
+                  this.aircraftData.set(this.parseOpenSkyStates(data.states));
+                  success = true;
+                }
+              } catch { /* inner JSON failed */ }
+            }
+          }
+        } catch (e) {
+          console.warn('allorigins proxy failed', e);
+        }
+      }
+
+      // Attempt 3: corsproxy.io wrapper
+      if (!success) {
+        try {
+          const res = await fetch('https://corsproxy.io/?' + encodeURIComponent('https://opensky-network.org/api/states/all')).catch(() => null);
+          if (res && res.ok) {
+            const text = await res.text();
+            try {
+              const data = JSON.parse(text);
+              if (data && data.states) {
+                this.aircraftData.set(this.parseOpenSkyStates(data.states));
+                success = true;
+              }
+            } catch { /* non-JSON */ }
+          }
+        } catch (e) {
+          console.warn('corsproxy.io failed', e);
+        }
+      }
+
+      if (!success && this.aircraftData().length === 0) {
+        console.error('All aircraft API attempts failed. For reliable data, add your OpenSky credentials at the top of globe.ts (OPENSKY_USERNAME / OPENSKY_PASSWORD). Sign up free: https://opensky-network.org/');
       }
     }
     
@@ -1233,6 +1282,9 @@ ${mercoPressText}`,
        }
        // Update shipData for D3 to render
        this.shipData.set(Array.from(this.shipDataMap.values()));
+    } else if (!AISSTREAM_API_KEY && this.showNavy()) {
+       console.warn('Navy tracking requires an AISStream API key. Get your free key at https://aisstream.io/ and paste it into AISSTREAM_API_KEY at the top of globe.ts');
+       this.shipData.set([]);
     } else {
        if (this.shipSocket) {
            this.shipSocket.close();
