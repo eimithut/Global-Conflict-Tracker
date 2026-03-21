@@ -3,6 +3,18 @@ import {DatePipe} from '@angular/common';
 import * as d3 from 'd3';
 import {GoogleGenAI, Type, ThinkingLevel} from '@google/genai';
 
+// ==========================================
+// API CONFIGURATION: HARDCODE YOUR KEYS HERE
+// ==========================================
+// OpenSky Network (Free live planes, heavily rate-limited without account. Required for active scanning)
+// Sign up at: https://opensky-network.org/
+const OPENSKY_USERNAME = ''; 
+const OPENSKY_PASSWORD = '';
+
+// Live Ships (AISStream WebSocket API)
+// Get your free API key at: https://aisstream.io/
+const AISSTREAM_API_KEY = ''; 
+
 interface Feature {
   properties: {
     name: string;
@@ -450,6 +462,8 @@ export class Globe implements OnDestroy {
   aircraftData = signal<any[]>([]);
   shipData = signal<any[]>([]);
   private trackersInterval: any;
+  private shipSocket: WebSocket | null = null;
+  private shipDataMap = new Map<number, any>();
 
   loading = signal(true);
   hoveredCountry = signal<{name: string, statuses: SourceStatus[]} | null>(null);
@@ -489,6 +503,7 @@ export class Globe implements OnDestroy {
   ngOnDestroy() {
     this.resizeObserver?.disconnect();
     if (this.trackersInterval) clearInterval(this.trackersInterval);
+    if (this.shipSocket) this.shipSocket.close();
   }
 
   private async initGlobe() {
@@ -1070,6 +1085,20 @@ ${mercoPressText}`,
   }
 
   // ==== TRACKER METHODS added below ====
+  getCountryFromMMSI(mmsi: number): string {
+    const mid = Math.floor(mmsi / 1000000);
+    if (mid >= 366 && mid <= 369) return 'United States';
+    if (mid === 273) return 'Russia';
+    if (mid >= 412 && mid <= 414) return 'China';
+    if (mid >= 232 && mid <= 235) return 'United Kingdom';
+    if (mid >= 226 && mid <= 228) return 'France';
+    if (mid === 211 || mid === 218) return 'Germany';
+    if (mid === 272) return 'Ukraine';
+    if (mid === 428) return 'Israel';
+    if (mid === 422) return 'Iran, Islamic Republic of';
+    return 'Unknown';
+  }
+
   getCountryCode(country: string): string {
     const map: Record<string, string> = {
       'united states': 'us',
@@ -1134,7 +1163,11 @@ ${mercoPressText}`,
   private async fetchTrackers() {
     if (this.showAirforce()) {
       try {
-        const res = await fetch('https://opensky-network.org/api/states/all');
+        const headers: HeadersInit = {};
+        if (OPENSKY_USERNAME && OPENSKY_PASSWORD) {
+          headers['Authorization'] = 'Basic ' + btoa(OPENSKY_USERNAME + ':' + OPENSKY_PASSWORD);
+        }
+        const res = await fetch('https://opensky-network.org/api/states/all', { headers });
         if (res.ok) {
           const data = await res.json();
           if (data && data.states) {
@@ -1158,9 +1191,49 @@ ${mercoPressText}`,
     }
     
     if (this.showNavy()) {
-       // All simulated ship data has been explicitly removed as per user request for "only real locations".
-       // Connecting to a live worldwide AIS feed for naval vessels requires a paid API key (e.g., VesselFinder, MarineTraffic).
-       // Thus, we leave this array strictly empty to preserve complete data authenticity.
+       if (!this.shipSocket && AISSTREAM_API_KEY) {
+           this.shipSocket = new WebSocket("wss://stream.aisstream.io/v0/stream");
+           this.shipSocket.onopen = () => {
+               this.shipSocket?.send(JSON.stringify({
+                   APIKey: AISSTREAM_API_KEY,
+                   BoundingBoxes: [[[-90, -180], [90, 180]]],
+                   FilterMessageTypes: ["PositionReport"]
+               }));
+           };
+           this.shipSocket.onmessage = (event) => {
+               const msg = JSON.parse(event.data);
+               if (msg["MessageType"] === "PositionReport") {
+                   const report = msg["Message"]["PositionReport"];
+                   const meta = msg["MetaData"];
+                   const ship = {
+                       id: report["UserID"],
+                       callsign: meta["ShipName"] && meta["ShipName"].trim() !== '' ? meta["ShipName"].trim() : 'Unknown Vessel',
+                       country: this.getCountryFromMMSI(report["UserID"]),
+                       lng: report["Longitude"],
+                       lat: report["Latitude"],
+                       velocity: report["Sog"] || 0,
+                       heading: report["TrueHeading"] || 0,
+                       type: 'Vessel'
+                   };
+                   this.shipDataMap.set(ship.id, ship);
+                   // Keep memory bounded
+                   if (this.shipDataMap.size > 2000) {
+                       const firstKey = this.shipDataMap.keys().next().value;
+                       if (firstKey !== undefined) this.shipDataMap.delete(firstKey);
+                   }
+               }
+           };
+           this.shipSocket.onerror = (e) => console.error("AISStream Error", e);
+           this.shipSocket.onclose = () => { this.shipSocket = null; };
+       }
+       // Update shipData for D3 to render
+       this.shipData.set(Array.from(this.shipDataMap.values()));
+    } else {
+       if (this.shipSocket) {
+           this.shipSocket.close();
+           this.shipSocket = null;
+       }
+       this.shipDataMap.clear();
        this.shipData.set([]);
     }
     this.updateTrackersOverlay();
