@@ -1141,6 +1141,31 @@ ${mercoPressText}`,
       }));
   }
 
+  private inferCountryFromReg(reg: string): string {
+    if (!reg) return '';
+    const r = reg.toUpperCase();
+    if (r.startsWith('N')) return 'United States';
+    if (r.startsWith('G-')) return 'United Kingdom';
+    if (r.startsWith('F-')) return 'France';
+    if (r.startsWith('D-')) return 'Germany';
+    if (r.startsWith('RA-') || r.startsWith('RF-')) return 'Russia';
+    if (r.startsWith('B-') && r.length === 5) return 'China';
+    if (r.startsWith('JA')) return 'Japan';
+    if (r.startsWith('VT-')) return 'India';
+    if (r.startsWith('UR-')) return 'Ukraine';
+    if (r.startsWith('4X-')) return 'Israel';
+    if (r.startsWith('TC-')) return 'Turkey';
+    if (r.startsWith('C-')) return 'Canada';
+    if (r.startsWith('VH-')) return 'Australia';
+    if (r.startsWith('I-')) return 'Italy';
+    if (r.startsWith('EC-')) return 'Spain';
+    if (r.startsWith('PP-') || r.startsWith('PR-') || r.startsWith('PT-') || r.startsWith('PS-')) return 'Brazil';
+    if (r.startsWith('HL')) return 'South Korea';
+    if (r.startsWith('AP-')) return 'Pakistan';
+    if (r.startsWith('EP-')) return 'Iran';
+    return '';
+  }
+
   toggleAirforce() {
     this.showAirforce.set(!this.showAirforce());
     this.refreshTrackers();
@@ -1178,52 +1203,41 @@ ${mercoPressText}`,
     if (this.showAirforce()) {
       let success = false;
       
-      // Attempt 1: Direct OpenSky with optional auth
+      // Primary: ADSB.lol - Free, no auth, CORS-enabled, global coverage
       try {
-        const headers: HeadersInit = {};
-        if (OPENSKY_USERNAME && OPENSKY_PASSWORD) {
-          headers['Authorization'] = 'Basic ' + btoa(OPENSKY_USERNAME + ':' + OPENSKY_PASSWORD);
-        }
-        const res = await fetch('https://opensky-network.org/api/states/all', { headers }).catch(() => null);
+        const res = await fetch('https://api.adsb.lol/v2/all').catch(() => null);
         if (res && res.ok) {
           const text = await res.text();
           try {
             const data = JSON.parse(text);
-            if (data && data.states) {
-              this.aircraftData.set(this.parseOpenSkyStates(data.states));
+            if (data && data.ac && Array.isArray(data.ac)) {
+              const planes = data.ac
+                .filter((a: any) => a.lat != null && a.lon != null)
+                .map((a: any) => ({
+                  callsign: (a.flight || a.r || '').trim() || 'Unknown',
+                  country: a.ownOp || this.inferCountryFromReg(a.r || '') || 'Unknown',
+                  lng: a.lon,
+                  lat: a.lat,
+                  velocity: Math.round((a.gs || 0) * 1.852), // knots to km/h
+                  heading: Math.round(a.track || a.true_heading || 0),
+                  category: a.category || ''
+                }));
+              this.aircraftData.set(planes);
               success = true;
             }
-          } catch { /* non-JSON response (e.g. rate limit text) */ }
+          } catch { /* JSON parse failed */ }
         }
       } catch (e) {
-        console.warn('OpenSky direct failed', e);
+        console.warn('ADSB.lol fetch failed', e);
       }
       
-      // Attempt 2: allorigins.win JSON-wrapped proxy
-      if (!success) {
+      // Fallback: OpenSky with auth credentials only (unauthenticated always 429s)
+      if (!success && OPENSKY_USERNAME && OPENSKY_PASSWORD) {
         try {
-          const res = await fetch('https://api.allorigins.win/get?url=' + encodeURIComponent('https://opensky-network.org/api/states/all')).catch(() => null);
-          if (res && res.ok) {
-            const wrapper = await res.json().catch(() => null);
-            if (wrapper && wrapper.contents) {
-              try {
-                const data = JSON.parse(wrapper.contents);
-                if (data && data.states) {
-                  this.aircraftData.set(this.parseOpenSkyStates(data.states));
-                  success = true;
-                }
-              } catch { /* inner JSON failed */ }
-            }
-          }
-        } catch (e) {
-          console.warn('allorigins proxy failed', e);
-        }
-      }
-
-      // Attempt 3: corsproxy.io wrapper
-      if (!success) {
-        try {
-          const res = await fetch('https://corsproxy.io/?' + encodeURIComponent('https://opensky-network.org/api/states/all')).catch(() => null);
+          const headers: HeadersInit = {
+            'Authorization': 'Basic ' + btoa(OPENSKY_USERNAME + ':' + OPENSKY_PASSWORD)
+          };
+          const res = await fetch('https://opensky-network.org/api/states/all', { headers }).catch(() => null);
           if (res && res.ok) {
             const text = await res.text();
             try {
@@ -1232,15 +1246,15 @@ ${mercoPressText}`,
                 this.aircraftData.set(this.parseOpenSkyStates(data.states));
                 success = true;
               }
-            } catch { /* non-JSON */ }
+            } catch { /* rate limit text */ }
           }
         } catch (e) {
-          console.warn('corsproxy.io failed', e);
+          console.warn('OpenSky auth fallback failed', e);
         }
       }
 
       if (!success && this.aircraftData().length === 0) {
-        console.error('All aircraft API attempts failed. For reliable data, add your OpenSky credentials at the top of globe.ts (OPENSKY_USERNAME / OPENSKY_PASSWORD). Sign up free: https://opensky-network.org/');
+        console.error('Aircraft data fetch failed. ADSB.lol may be temporarily unavailable.');
       }
     }
     
