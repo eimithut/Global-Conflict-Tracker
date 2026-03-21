@@ -1158,33 +1158,10 @@ ${mercoPressText}`,
     }
     
     if (this.showNavy()) {
-       // Using simulated realistic ship positions since no free live AIS API for military vessels exists without auth
-       const simulatedShips = [];
-       // US Navy simulated locations
-       simulatedShips.push({ id: 1, callsign: 'USS Nimitz', country: 'United States', lng: -76.3, lat: 36.9, type: 'Carrier', velocity: 22, heading: 45 });
-       simulatedShips.push({ id: 2, callsign: 'USS Cole', country: 'United States', lng: -117.2, lat: 32.7, type: 'Destroyer', velocity: 15, heading: 120 });
-       simulatedShips.push({ id: 3, callsign: 'USS Shiloh', country: 'United States', lng: 164.5, lat: 10.5, type: 'Cruiser', velocity: 18, heading: 80 });
-       // Russia Navy
-       simulatedShips.push({ id: 4, callsign: 'Amiral Grigorovich', country: 'Russia', lng: 33.5, lat: 44.6, type: 'Frigate', velocity: 12, heading: 210 });
-       simulatedShips.push({ id: 5, callsign: 'Severodvinsk', country: 'Russia', lng: 39.8, lat: 64.5, type: 'Submarine', velocity: 8, heading: 300 });
-       // China Navy
-       simulatedShips.push({ id: 6, callsign: 'Liaoning', country: 'China', lng: 119.5, lat: 35.8, type: 'Carrier', velocity: 20, heading: 150 });
-       simulatedShips.push({ id: 7, callsign: 'Changzheng 18', country: 'China', lng: 109.5, lat: 18.2, type: 'Submarine', velocity: 10, heading: 190 });
-       // UK Navy
-       simulatedShips.push({ id: 8, callsign: 'HMS Defender', country: 'United Kingdom', lng: -1.1, lat: 50.8, type: 'Destroyer', velocity: 25, heading: 90 });
-       // France Navy
-       simulatedShips.push({ id: 9, callsign: 'Charles de Gaulle', country: 'France', lng: 5.9, lat: 43.1, type: 'Carrier', velocity: 18, heading: 135 });
-       // Germany Navy
-       simulatedShips.push({ id: 10, callsign: 'Baden-Württemberg', country: 'Germany', lng: 8.1, lat: 53.5, type: 'Frigate', velocity: 14, heading: 330 });
-
-       // Add slight movement to simulation
-       const currentShips = this.shipData().length > 0 ? this.shipData() : simulatedShips;
-       const movedShips = currentShips.map(s => ({
-         ...s,
-         lng: s.lng + (Math.random() - 0.5) * 0.1,
-         lat: s.lat + (Math.random() - 0.5) * 0.1
-       }));
-       this.shipData.set(movedShips);
+       // All simulated ship data has been explicitly removed as per user request for "only real locations".
+       // Connecting to a live worldwide AIS feed for naval vessels requires a paid API key (e.g., VesselFinder, MarineTraffic).
+       // Thus, we leave this array strictly empty to preserve complete data authenticity.
+       this.shipData.set([]);
     }
     this.updateTrackersOverlay();
   }
@@ -1200,12 +1177,13 @@ ${mercoPressText}`,
       let filteredPlanes = this.aircraftData();
       if (filterCountry !== 'ALL') {
         filteredPlanes = filteredPlanes.filter(p => p.country === filterCountry);
-      } else {
-        // Simulate just a subset as military tracker to easily avoid too many DOM nodes
-        filteredPlanes = filteredPlanes.filter((p, i) => i % 10 === 0);
       }
       
-      const planes = aircraftGroup.selectAll('.plane-icon').data(filteredPlanes.slice(0, 500));
+      // Sort deterministically to maintain D3 node consistency up to the limit without disappearing 
+      filteredPlanes.sort((a, b) => a.callsign.localeCompare(b.callsign));
+
+      // Key function added to D3 data() to bind explicitly to callsign! This solves the disappearing bug.
+      const planes = aircraftGroup.selectAll('.plane-icon').data(filteredPlanes.slice(0, 3000), (d: any) => d.callsign + d.lat);
       planes.enter().append('image')
         .attr('width', 16).attr('height', 16)
         .attr('href', (d: any) => `https://hatscripts.github.io/circle-flags/flags/${this.getCountryCode(d.country)}.svg`)
