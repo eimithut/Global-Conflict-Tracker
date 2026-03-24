@@ -1,10 +1,9 @@
 import {ChangeDetectionStrategy, Component, ElementRef, viewChild, signal, afterNextRender, OnDestroy} from '@angular/core';
 import {DatePipe} from '@angular/common';
 import * as d3 from 'd3';
-import {iso3ToIso2} from './iso-codes';
+import {GoogleGenAI, Type, ThinkingLevel} from '@google/genai';
 
 interface Feature {
-  id?: string;
   properties: {
     name: string;
   };
@@ -64,8 +63,20 @@ interface SourceStatus {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [DatePipe],
   selector: 'app-globe',
+  styles: [`
+    .starry-bg {
+      background-color: #020617;
+      background-image: 
+        radial-gradient(white, rgba(255,255,255,.2) 2px, transparent 40px),
+        radial-gradient(white, rgba(255,255,255,.15) 1px, transparent 30px),
+        radial-gradient(white, rgba(255,255,255,.1) 2px, transparent 40px),
+        radial-gradient(rgba(255,255,255,.4), rgba(255,255,255,.1) 2px, transparent 30px);
+      background-size: 550px 550px, 350px 350px, 250px 250px, 150px 150px; 
+      background-position: 0 0, 40px 60px, 130px 270px, 70px 100px;
+    }
+  `],
   template: `
-    <div class="relative w-screen h-screen flex flex-col items-center justify-center bg-slate-900 overflow-hidden">
+    <div class="relative w-screen h-screen flex flex-col items-center justify-center starry-bg overflow-hidden">
       @if (loading()) {
         <div class="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/80 z-10 text-white">
           <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-white mb-4"></div>
@@ -75,6 +86,68 @@ interface SourceStatus {
       }
       <div #globeContainer class="w-full h-full cursor-grab active:cursor-grabbing"></div>
       
+      <!-- Reset View Button -->
+      <button 
+        (click)="resetView()"
+        class="absolute top-6 left-6 bg-slate-800/90 hover:bg-slate-700 p-3 rounded-full border border-slate-600 text-slate-200 shadow-lg backdrop-blur-sm transition-colors"
+        title="Reset View"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+          <path d="M3 3v5h5"/>
+        </svg>
+      </button>
+
+      <!-- Search Bar -->
+      <div class="absolute top-6 right-6 z-20 w-64">
+        <div class="relative">
+          <input 
+            type="text" 
+            placeholder="Search country..." 
+            class="w-full bg-slate-800/90 border border-slate-600 text-white rounded-full px-4 py-2 text-sm focus:outline-none focus:border-blue-500 shadow-lg backdrop-blur-sm"
+            [value]="searchQuery()"
+            (input)="updateSearch($event)"
+          >
+          <svg class="absolute right-3 top-2.5 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+        </div>
+        
+        @if (searchResults().length > 0) {
+          <div class="absolute top-full left-0 right-0 mt-2 bg-slate-800/95 border border-slate-600 rounded-lg shadow-xl backdrop-blur-md overflow-hidden max-h-60 overflow-y-auto">
+            @for (country of searchResults(); track country.properties.name) {
+              <button 
+                class="w-full text-left px-4 py-2 text-sm text-slate-200 hover:bg-slate-700 hover:text-white transition-colors"
+                (click)="selectSearchedCountry(country)"
+              >
+                {{ country.properties.name }}
+              </button>
+            }
+          </div>
+        }
+      </div>
+
+      <!-- Floating Tooltip -->
+      @if (hoveredCountry()) {
+        <div 
+          class="fixed pointer-events-none z-50 bg-slate-800/90 backdrop-blur-md border border-slate-700 p-3 rounded-xl shadow-2xl transform -translate-x-1/2 -translate-y-[calc(100%+1rem)] transition-all duration-75"
+          [style.left.px]="tooltipPos().x"
+          [style.top.px]="tooltipPos().y"
+        >
+          <h4 class="font-bold text-white text-base mb-1">{{ hoveredCountry()?.name }}</h4>
+          @if (hoveredCountry()?.statuses?.length) {
+            <div class="flex flex-col gap-1">
+              @for (status of hoveredCountry()?.statuses; track status.source) {
+                <div class="flex items-center gap-2 text-xs">
+                  <div class="w-2 h-2 rounded-full" [style.backgroundColor]="getColorHexForStatus(status.status)"></div>
+                  <span class="text-slate-300">{{ status.source }}: {{ status.status }}</span>
+                </div>
+              }
+            </div>
+          } @else {
+            <p class="text-xs text-slate-400 italic">No data available</p>
+          }
+        </div>
+      }
+
       <!-- Legend -->
       <div class="absolute bottom-6 left-6 bg-slate-800/90 p-4 rounded-lg border border-slate-700 text-sm text-slate-200 shadow-lg backdrop-blur-sm">
         <h3 class="font-semibold mb-2 text-white">Global Status</h3>
@@ -366,6 +439,7 @@ interface SourceStatus {
 })
 export class Globe implements OnDestroy {
   private globeContainer = viewChild.required<ElementRef>('globeContainer');
+  private ai!: GoogleGenAI;
   private resizeObserver?: ResizeObserver;
   private worldData: {features: Feature[]} | null = null;
   private countryStatuses: Record<string, SourceStatus[]> = {};
@@ -393,7 +467,24 @@ export class Globe implements OnDestroy {
   private allAfricaNews: AllAfricaNewsItem[] = [];
   private mercoPressNews: MercoPressNewsItem[] = [];
 
+  tooltipPos = signal<{x: number, y: number}>({x: 0, y: 0});
+  private lastInteractionTime = Date.now();
+  private animationFrameId?: number;
+  private currentProjection?: d3.GeoProjection;
+  private currentPath?: d3.GeoPath;
+  private currentSvg?: d3.Selection<SVGSVGElement, unknown, null, undefined>;
+  private initialScale = 0;
+
+  searchQuery = signal('');
+  allCountries = signal<Feature[]>([]);
+  searchResults = signal<Feature[]>([]);
+
   constructor() {
+    if (typeof GEMINI_API_KEY !== 'undefined' && GEMINI_API_KEY) {
+      this.ai = new GoogleGenAI({apiKey: GEMINI_API_KEY});
+    } else {
+      console.error('GEMINI_API_KEY is not defined.');
+    }
     afterNextRender(() => {
       this.initGlobe();
     });
@@ -401,12 +492,16 @@ export class Globe implements OnDestroy {
 
   ngOnDestroy() {
     this.resizeObserver?.disconnect();
+    if (this.animationFrameId) {
+      cancelAnimationFrame(this.animationFrameId);
+    }
   }
 
   private async initGlobe() {
     // Initial data fetch
     try {
       this.worldData = await d3.json('https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson') as {features: Feature[]};
+      this.allCountries.set(this.worldData.features);
       this.countryStatuses = await this.getCountryStatuses();
     } catch (error) {
       console.error('Error fetching initial data:', error);
@@ -436,6 +531,31 @@ export class Globe implements OnDestroy {
     if (status === 'watch') return '#facc15'; // yellow-400
     if (status === 'stable') return '#22c55e'; // green-500
     return '#475569'; // slate-600
+  }
+
+  updateSearch(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const query = input.value.toLowerCase().trim();
+    this.searchQuery.set(query);
+    
+    if (!query) {
+      this.searchResults.set([]);
+      return;
+    }
+    
+    const results = this.allCountries()
+      .filter(c => c.properties.name.toLowerCase().includes(query))
+      .slice(0, 5);
+      
+    this.searchResults.set(results);
+  }
+
+  selectSearchedCountry(country: Feature) {
+    this.searchQuery.set('');
+    this.searchResults.set([]);
+    const statuses = this.countryStatuses[country.properties.name] || [];
+    this.fetchCountryDetails(country.properties.name, statuses);
+    this.flyToCountry(country);
   }
 
   closeDetails() {
@@ -471,9 +591,67 @@ export class Globe implements OnDestroy {
   }
 
   async openAnalysis() {
-    // AI analysis is disabled as per user request
+    const country = this.selectedCountry();
+    if (!country) return;
+
     this.activeTab.set('analysis');
-    this.countryDetails.set('AI Analysis is currently disabled.');
+    if (this.countryDetails()) return; // Already loaded
+
+    this.countryDetailsLoading.set(true);
+    
+    if (!this.ai) {
+      this.countryDetails.set('Error: Gemini API key is missing.');
+      this.countryDetailsLoading.set(false);
+      return;
+    }
+
+    try {
+      const name = country.name;
+      const statuses = country.statuses;
+
+      let newsContext = '';
+      const sources = [
+        { name: 'Tagesschau', news: this.filteredTagesschau() },
+        { name: 'BBC', news: this.filteredBbc() },
+        { name: 'NYT', news: this.filteredNyt() },
+        { name: 'The Guardian', news: this.filteredGuardian() },
+        { name: 'AllAfrica', news: this.filteredAllAfrica() },
+        { name: 'MercoPress', news: this.filteredMercoPress() }
+      ];
+
+      sources.forEach(s => {
+        if (s.news.length > 0) {
+          newsContext += `${s.name}:\n` + s.news.slice(0, 5).map((item: TagesschauNewsItem | BbcNewsItem | NytArticle | GuardianArticle | AllAfricaNewsItem | MercoPressNewsItem) => {
+            let title = '';
+            let summary = '';
+            
+            if ('title' in item) title = item.title;
+            else if ('webTitle' in item) title = item.webTitle;
+            
+            if ('summary' in item) summary = item.summary;
+            else if ('abstract' in item) summary = item.abstract;
+            else if ('firstSentence' in item) summary = item.firstSentence;
+            else if ('sectionName' in item) summary = item.sectionName;
+
+            return `Title: ${title}\nSummary: ${summary}`;
+          }).join('\n\n') + '\n\n';
+        }
+      });
+
+      const response = await this.ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: `Based on the following recent news and your general knowledge, provide a brief, 2-3 paragraph summary of the current geopolitical situation in ${name}. It is currently marked with the following statuses by different sources: ${statuses.map(s => `${s.source}: ${s.status}`).join(', ') || 'No Data'}. Focus on conflicts, tensions, or political instability. Do not use markdown formatting like bolding or headers, just plain text paragraphs.\n\nRecent News for ${name}:\n${newsContext || 'No specific recent news found in the latest feeds.'}`,
+        config: {
+          tools: [{ googleSearch: {} }],
+        }
+      });
+      this.countryDetails.set(response.text || 'No details found.');
+    } catch (error) {
+      console.error('Error fetching details:', error);
+      this.countryDetails.set('Failed to load details. Please try again later.');
+    } finally {
+      this.countryDetailsLoading.set(false);
+    }
   }
 
   private async renderGlobe() {
@@ -527,6 +705,45 @@ export class Globe implements OnDestroy {
     gIcon.append('path').attr('d', 'M2 8.8a15 15 0 0 1 20 0');
     gIcon.append('line').attr('x1', '12').attr('y1', '20').attr('x2', '12.01').attr('y2', '20');
 
+    // 3D Float Filter
+    const filter = defs.append('filter')
+      .attr('id', '3d-float')
+      .attr('x', '-20%')
+      .attr('y', '-20%')
+      .attr('width', '140%')
+      .attr('height', '140%');
+
+    filter.append('feDropShadow')
+      .attr('dx', 1)
+      .attr('dy', 2)
+      .attr('stdDeviation', 0)
+      .attr('flood-color', '#020617') // slate-950
+      .attr('flood-opacity', 1);
+
+    filter.append('feDropShadow')
+      .attr('dx', 0)
+      .attr('dy', 4)
+      .attr('stdDeviation', 4)
+      .attr('flood-color', '#000000')
+      .attr('flood-opacity', 0.6);
+
+    defs.append('clipPath')
+      .attr('id', 'globe-clip')
+      .append('path')
+      .datum({type: 'Sphere'})
+      .attr('class', 'sphere')
+      .attr('d', (d: unknown) => path(d as d3.GeoPermissibleObjects) || '');
+
+    // Dynamic Lighting Gradient
+    const lightingGrad = defs.append('radialGradient')
+      .attr('id', 'lighting')
+      .attr('cx', '30%')
+      .attr('cy', '30%')
+      .attr('r', '70%');
+    lightingGrad.append('stop').attr('offset', '0%').attr('stop-color', 'rgba(255, 255, 255, 0.15)');
+    lightingGrad.append('stop').attr('offset', '50%').attr('stop-color', 'rgba(0, 0, 0, 0)');
+    lightingGrad.append('stop').attr('offset', '100%').attr('stop-color', 'rgba(0, 0, 0, 0.6)');
+
     // Add ocean/sphere
     svg.append('path')
       .datum({type: 'Sphere'})
@@ -547,7 +764,9 @@ export class Globe implements OnDestroy {
       .attr('stroke-width', 0.5);
 
     // Create a group for countries
-    const g = svg.append('g');
+    const g = svg.append('g')
+      .attr('filter', 'url(#3d-float)')
+      .attr('clip-path', 'url(#globe-clip)');
 
     if (this.worldData) {
       this.loading.set(false);
@@ -588,6 +807,9 @@ export class Globe implements OnDestroy {
         .attr('stroke', '#0f172a') // slate-900
         .attr('stroke-width', 0.5)
         .attr('class', 'transition-colors duration-200')
+        .on('mousemove', (event: MouseEvent) => {
+          this.tooltipPos.set({x: event.clientX, y: event.clientY});
+        })
         .on('mouseover', (event: MouseEvent, d: Feature) => {
           const statuses = this.countryStatuses[d.properties.name] || [];
           this.hoveredCountry.set({
@@ -608,12 +830,30 @@ export class Globe implements OnDestroy {
         .on('click', (event: MouseEvent, d: Feature) => {
           const statuses = this.countryStatuses[d.properties.name] || [];
           this.fetchCountryDetails(d.properties.name, statuses);
+          this.flyToCountry(d);
         });
     }
 
+    // Add dynamic lighting overlay
+    svg.append('path')
+      .datum({type: 'Sphere'})
+      .attr('class', 'lighting')
+      .attr('d', (d: unknown) => path(d as d3.GeoPermissibleObjects) || '')
+      .attr('fill', 'url(#lighting)')
+      .style('pointer-events', 'none');
+
+    this.currentProjection = projection;
+    this.currentPath = path;
+    this.currentSvg = svg;
+    this.initialScale = initialScale;
+
     // Add drag behavior for rotation
     const drag = d3.drag<SVGSVGElement, unknown>()
+      .on('start', () => {
+        this.lastInteractionTime = Date.now();
+      })
       .on('drag', (event) => {
+        this.lastInteractionTime = Date.now();
         const rotate = projection.rotate();
         // Adjust rotation based on drag distance
         const k = 75 / projection.scale();
@@ -631,7 +871,11 @@ export class Globe implements OnDestroy {
     // Add zoom behavior
     const zoom = d3.zoom<SVGSVGElement, unknown>()
       .scaleExtent([initialScale * 0.5, initialScale * 4])
+      .on('start', () => {
+        this.lastInteractionTime = Date.now();
+      })
       .on('zoom', (event) => {
+        this.lastInteractionTime = Date.now();
         projection.scale(event.transform.k);
         svg.selectAll('path').attr('d', (d: unknown) => path(d as d3.GeoPermissibleObjects) || '');
       });
@@ -643,23 +887,89 @@ export class Globe implements OnDestroy {
       .on("touchend.zoom", null);
       
     svg.call(zoom.transform, d3.zoomIdentity.translate(0, 0).scale(initialScale));
+
+    this.startAutoRotation();
+  }
+
+  private startAutoRotation() {
+    if (this.animationFrameId) {
+      cancelAnimationFrame(this.animationFrameId);
+    }
+
+    const rotate = () => {
+      if (this.currentProjection && this.currentSvg && this.currentPath) {
+        // Only auto-rotate if 3 seconds have passed since last interaction
+        if (Date.now() - this.lastInteractionTime > 3000) {
+          const rotation = this.currentProjection.rotate();
+          this.currentProjection.rotate([rotation[0] + 0.1, rotation[1], rotation[2]]);
+          this.currentSvg.selectAll('path').attr('d', (d: unknown) => this.currentPath!(d as d3.GeoPermissibleObjects) || '');
+        }
+      }
+      this.animationFrameId = requestAnimationFrame(rotate);
+    };
+
+    rotate();
+  }
+
+  private flyToCountry(d: Feature) {
+    if (!this.currentProjection || !this.currentSvg || !this.currentPath) return;
+
+    this.lastInteractionTime = Date.now();
+    const centroid = d3.geoCentroid(d as any);
+    
+    d3.transition()
+      .duration(1200)
+      .tween('rotate', () => {
+        const r = d3.interpolate(this.currentProjection!.rotate(), [-centroid[0], -centroid[1]]);
+        return (t) => {
+          this.currentProjection!.rotate(r(t) as [number, number, number]);
+          this.currentSvg!.selectAll('path').attr('d', (d: unknown) => this.currentPath!(d as d3.GeoPermissibleObjects) || '');
+        };
+      });
+  }
+
+  resetView() {
+    if (!this.currentProjection || !this.currentSvg || !this.currentPath) return;
+
+    this.lastInteractionTime = Date.now();
+    const container = this.globeContainer().nativeElement;
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+
+    d3.transition()
+      .duration(1200)
+      .tween('rotate', () => {
+        const r = d3.interpolate(this.currentProjection!.rotate(), [0, 0]);
+        const s = d3.interpolate(this.currentProjection!.scale(), this.initialScale);
+        return (t) => {
+          this.currentProjection!.rotate(r(t) as [number, number, number]);
+          this.currentProjection!.scale(s(t));
+          this.currentSvg!.selectAll('path').attr('d', (d: unknown) => this.currentPath!(d as d3.GeoPermissibleObjects) || '');
+        };
+      });
   }
 
   private async getCountryStatuses(): Promise<Record<string, SourceStatus[]>> {
+    if (!this.ai) {
+      console.error('Gemini AI not initialized. Missing API key.');
+      return {};
+    }
     try {
       const proxyUrl = 'https://api.allorigins.win/raw?url=';
       
-      // Start fetching news in parallel but don't await them yet
+      // Fetch news from Tagesschau API
       const tagesschauPromise = fetch('https://www.tagesschau.de/api2u/news/?regions=9&ressort=ausland', {
         headers: { 'accept': 'application/json' }
       }).then(res => res.json()).catch(() => ({ news: [] }));
 
+      // Fetch news from BBC via RSS-to-JSON (more reliable)
       const bbcNewsPromise = fetch('https://api.rss2json.com/v1/api.json?rss_url=https://feeds.bbci.co.uk/news/world/rss.xml', {
         headers: { 'accept': 'application/json' }
       }).then(res => res.json())
         .catch(() => fetch(`${proxyUrl}${encodeURIComponent('https://api.rss2json.com/v1/api.json?rss_url=https://feeds.bbci.co.uk/news/world/rss.xml')}`).then(res => res.json()))
         .catch(() => ({ items: [] }));
 
+      // Fetch news from NYT API
       let nytPromise: Promise<{results: NytArticle[]}> = Promise.resolve({ results: [] });
       if (typeof NYT_API_KEY !== 'undefined' && NYT_API_KEY) {
         this.nytApiKeyMissing.set(false);
@@ -670,8 +980,10 @@ export class Globe implements OnDestroy {
           .catch(() => ({ results: [] }));
       } else {
         this.nytApiKeyMissing.set(true);
+        console.warn('NYT_API_KEY is not defined. Skipping NYT news fetch.');
       }
 
+      // Fetch news from Guardian API
       let guardianPromise: Promise<{response: {results: GuardianArticle[]}}> = Promise.resolve({ response: { results: [] } });
       if (typeof GUARDIAN_API_KEY !== 'undefined' && GUARDIAN_API_KEY) {
         this.guardianApiKeyMissing.set(false);
@@ -682,48 +994,35 @@ export class Globe implements OnDestroy {
           .catch(() => ({ response: { results: [] } }));
       } else {
         this.guardianApiKeyMissing.set(true);
+        console.warn('GUARDIAN_API_KEY is not defined. Skipping Guardian news fetch.');
       }
 
+      // Fetch news from AllAfrica via RSS-to-JSON
       const allAfricaPromise = fetch('https://api.rss2json.com/v1/api.json?rss_url=https://allafrica.com/tools/headlines/rdf/latest/headlines.rdf', {
         headers: { 'accept': 'application/json' }
       }).then(res => res.json())
         .catch(() => fetch(`${proxyUrl}${encodeURIComponent('https://api.rss2json.com/v1/api.json?rss_url=https://allafrica.com/tools/headlines/rdf/latest/headlines.rdf')}`).then(res => res.json()))
         .catch(() => ({ items: [] }));
 
+      // Fetch news from MercoPress via RSS-to-JSON
       const mercoPressPromise = fetch('https://api.rss2json.com/v1/api.json?rss_url=https://en.mercopress.com/rss/', {
         headers: { 'accept': 'application/json' }
       }).then(res => res.json())
         .catch(() => fetch(`${proxyUrl}${encodeURIComponent('https://api.rss2json.com/v1/api.json?rss_url=https://en.mercopress.com/rss/')}`).then(res => res.json()))
         .catch(() => ({ items: [] }));
 
-      // Fetch Travel Advisory API - Critical for globe status
-      // Use corsproxy.io as it might handle large responses better
-      const travelAdvisoryPromise = fetch('https://corsproxy.io/?' + encodeURIComponent('https://www.travel-advisory.info/api'), {
-        headers: { 'accept': 'application/json' }
-      }).then(res => res.json())
-        .catch(() => fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent('https://www.travel-advisory.info/api')).then(res => res.json()))
-        .catch(() => ({ data: {} }));
-
-      // Fetch RestCountries for ISO mapping - Optional now since we have fallback
-      const restCountriesPromise = fetch('https://restcountries.com/v3.1/all?fields=cca2,cca3,name', {
-        headers: { 'accept': 'application/json' }
-      }).then(res => res.json()).catch(() => ([]));
-
-      // Wait for all promises
-      const [newsData, bbcData, nytData, guardianData, allAfricaData, mercoPressData, travelAdvisoryData, restCountriesData] = await Promise.all([
+      const [newsData, bbcData, nytData, guardianData, allAfricaData, mercoPressData] = await Promise.all([
         tagesschauPromise, 
         bbcNewsPromise, 
         nytPromise,
         guardianPromise,
         allAfricaPromise,
-        mercoPressPromise,
-        travelAdvisoryPromise,
-        restCountriesPromise
+        mercoPressPromise
       ]);
       
-      // Populate news data
       this.tagesschauNews = newsData.news || [];
       
+      // Extract BBC news from RSS items
       const bbcArticles: BbcNewsItem[] = [];
       if (bbcData && Array.isArray(bbcData.items)) {
         interface RssItem {
@@ -746,6 +1045,7 @@ export class Globe implements OnDestroy {
       this.nytNews = nytData.results || [];
       this.guardianNews = guardianData.response?.results || [];
       
+      // Extract AllAfrica news from RSS items
       const allAfricaArticles: AllAfricaNewsItem[] = [];
       if (allAfricaData && Array.isArray(allAfricaData.items)) {
         interface RssItem {
@@ -764,6 +1064,7 @@ export class Globe implements OnDestroy {
       }
       this.allAfricaNews = allAfricaArticles;
 
+      // Extract MercoPress news from RSS items
       const mercoPressArticles: MercoPressNewsItem[] = [];
       if (mercoPressData && Array.isArray(mercoPressData.items)) {
         interface RssItem {
@@ -790,93 +1091,111 @@ export class Globe implements OnDestroy {
         });
       }
       this.mercoPressNews = mercoPressArticles;
-
-      // Process Travel Advisory Data
-      const result: Record<string, SourceStatus[]> = {};
       
-      // Create mapping: ISO3 -> ISO2
-      const mapping: Record<string, string> = { ...iso3ToIso2 }; // Start with fallback
-      if (Array.isArray(restCountriesData) && restCountriesData.length > 0) {
-        restCountriesData.forEach((c: { cca2: string; cca3: string }) => {
-          if (c.cca2 && c.cca3) {
-            mapping[c.cca3] = c.cca2;
-          }
-        });
-      }
+      // Extract relevant text from news (only titles to save tokens and speed up processing)
+      const tagesschauText = this.tagesschauNews.slice(0, 10).map((item) => 
+        `Title: ${item.title}`
+      ).join('\n');
 
-      const advisoryData = travelAdvisoryData.data || {};
+      const bbcText = this.bbcNews.slice(0, 10).map((item) => 
+        `Title: ${item.title}`
+      ).join('\n');
 
-      // Keyword-based fallback logic (NOT AI)
-      const getStatusFromKeywords = (text: string): string | null => {
-        const lower = text.toLowerCase();
-        // Stricter 'war' criteria
-        if (lower.includes('civil war') || lower.includes('declared war') || lower.includes('genocide')) return 'war';
-        // Move generic 'war' and 'conflict' to 'tense' to avoid false positives
-        if (lower.includes('war') || lower.includes('conflict') || lower.includes('attack') || lower.includes('invasion') || lower.includes('bombing') || lower.includes('military operation')) return 'tense';
-        if (lower.includes('tense') || lower.includes('tension') || lower.includes('crisis') || lower.includes('unrest') || lower.includes('protest') || lower.includes('riot')) return 'tense';
-        if (lower.includes('election') || lower.includes('political') || lower.includes('economy') || lower.includes('warning') || lower.includes('diplomatic')) return 'watch';
-        if (lower.includes('peace') || lower.includes('agreement') || lower.includes('stable') || lower.includes('growth') || lower.includes('treaty')) return 'stable';
-        return null;
-      };
+      const nytText = this.nytNews.slice(0, 10).map((item) => 
+        `Title: ${item.title}`
+      ).join('\n');
 
-      // Collect all news text for fallback
-      const allNews = [
-        ...this.tagesschauNews.map(i => ({ text: i.title + ' ' + i.firstSentence, source: 'Tagesschau' })),
-        ...this.bbcNews.map(i => ({ text: i.title + ' ' + i.summary, source: 'BBC' })),
-        ...this.nytNews.map(i => ({ text: i.title + ' ' + i.abstract, source: 'NYT' })),
-        ...this.guardianNews.map(i => ({ text: i.webTitle, source: 'Guardian' })),
-        ...this.allAfricaNews.map(i => ({ text: i.title + ' ' + i.summary, source: 'AllAfrica' })),
-        ...this.mercoPressNews.map(i => ({ text: i.title + ' ' + i.summary, source: 'MercoPress' }))
-      ];
+      const guardianText = this.guardianNews.slice(0, 10).map((item) => 
+        `Title: ${item.webTitle}`
+      ).join('\n');
 
-      if (this.worldData && this.worldData.features) {
-        this.worldData.features.forEach((feature: Feature) => {
-          const name = feature.properties.name;
-          const id = feature.id; // ISO3 usually
-          
-          let iso2 = '';
-          if (id && mapping[id]) {
-            iso2 = mapping[id];
-          }
+      const allAfricaText = this.allAfricaNews.slice(0, 10).map((item) => 
+        `Title: ${item.title}`
+      ).join('\n');
 
-          let statusFound = false;
+      const mercoPressText = this.mercoPressNews.slice(0, 10).map((item) => 
+        `Title: ${item.title}`
+      ).join('\n');
 
-          // 1. Try Travel Advisory API
-          if (iso2 && advisoryData[iso2]) {
-            const score = advisoryData[iso2].advisory.score;
-            let status = 'stable';
-            if (score >= 4.5) status = 'war';
-            else if (score >= 3.5) status = 'tense';
-            else if (score >= 2.5) status = 'watch';
-            
-            result[name] = [{ source: 'Travel Advisory', status }];
-            statusFound = true;
-          } 
-          
-          // 2. Fallback: Keyword search in news if no advisory data
-          if (!statusFound) {
-            const countryNews = allNews.filter(n => n.text.toLowerCase().includes(name.toLowerCase()));
-            if (countryNews.length > 0) {
-              const statuses: SourceStatus[] = [];
-              countryNews.forEach(news => {
-                const s = getStatusFromKeywords(news.text);
-                if (s) {
-                  // Avoid duplicates per source
-                  if (!statuses.find(st => st.source === news.source)) {
-                    statuses.push({ source: news.source, status: s });
+      const response = await this.ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: `Based on the following recent news headlines from Tagesschau, BBC, NYT, The Guardian, AllAfrica, and MercoPress, determine the current geopolitical status of countries worldwide. 
+Evaluate the status of each country according to EACH individual news source that mentions it.
+Categorize the status into one of four values: "war" (active major conflicts), "tense" (high tension, border skirmishes, significant internal unrest), "watch" (potential for instability, political crisis, emerging issues), or "stable" (specifically mentioned in the news as stable, peaceful, or having positive developments).
+If a source does not mention a country, do not include that source for that country.
+Return ONLY a JSON object containing an array of countries, where each country has a name and a list of statuses from the different sources. Ensure country names match standard English names (e.g., "Russia", "Ukraine", "Israel", "Palestine", "Sudan", "Taiwan").
+
+Tagesschau News:
+${tagesschauText}
+
+BBC News:
+${bbcText}
+
+NYT News:
+${nytText}
+
+The Guardian News:
+${guardianText}
+
+AllAfrica News:
+${allAfricaText}
+
+MercoPress News:
+${mercoPressText}`,
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              countries: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    name: { type: Type.STRING, description: "Standard English country name" },
+                    statuses: {
+                      type: Type.ARRAY,
+                      items: {
+                        type: Type.OBJECT,
+                        properties: {
+                          source: { type: Type.STRING, description: "Name of the news source (e.g., 'BBC', 'Tagesschau')" },
+                          status: { type: Type.STRING, description: "One of: 'war', 'tense', 'watch', 'stable'" }
+                        }
+                      }
+                    }
                   }
                 }
-              });
-              
-              if (statuses.length > 0) {
-                result[name] = statuses;
               }
             }
           }
+        }
+      });
+      
+      const data = JSON.parse(response.text || '{}');
+      const result: Record<string, SourceStatus[]> = {};
+      
+      const normalize = (name: string) => name.toLowerCase().trim();
+      
+      if (data.countries && Array.isArray(data.countries)) {
+        data.countries.forEach((c: { name: string; statuses: SourceStatus[] }) => {
+          if (c.name && Array.isArray(c.statuses)) {
+            result[c.name] = c.statuses;
+          }
         });
       }
       
-      return result;
+      const normalizedResult: Record<string, SourceStatus[]> = {};
+      Object.entries(result).forEach(([key, value]) => {
+        normalizedResult[normalize(key)] = value;
+      });
+      
+      return new Proxy(result, {
+        get: (target, prop: string) => {
+          if (prop in target) return target[prop];
+          return normalizedResult[normalize(prop)];
+        }
+      });
     } catch (error) {
       console.error('Error fetching statuses:', error);
       return {};
