@@ -1,9 +1,10 @@
 import {ChangeDetectionStrategy, Component, ElementRef, viewChild, signal, afterNextRender, OnDestroy} from '@angular/core';
 import {DatePipe} from '@angular/common';
 import * as d3 from 'd3';
-import {GoogleGenAI, Type, ThinkingLevel} from '@google/genai';
+import {iso3ToIso2} from './iso-codes';
 
 interface Feature {
+  id?: string;
   properties: {
     name: string;
   };
@@ -365,7 +366,6 @@ interface SourceStatus {
 })
 export class Globe implements OnDestroy {
   private globeContainer = viewChild.required<ElementRef>('globeContainer');
-  private ai!: GoogleGenAI;
   private resizeObserver?: ResizeObserver;
   private worldData: {features: Feature[]} | null = null;
   private countryStatuses: Record<string, SourceStatus[]> = {};
@@ -394,11 +394,6 @@ export class Globe implements OnDestroy {
   private mercoPressNews: MercoPressNewsItem[] = [];
 
   constructor() {
-    if (typeof GEMINI_API_KEY !== 'undefined' && GEMINI_API_KEY) {
-      this.ai = new GoogleGenAI({apiKey: GEMINI_API_KEY});
-    } else {
-      console.error('GEMINI_API_KEY is not defined.');
-    }
     afterNextRender(() => {
       this.initGlobe();
     });
@@ -476,67 +471,9 @@ export class Globe implements OnDestroy {
   }
 
   async openAnalysis() {
-    const country = this.selectedCountry();
-    if (!country) return;
-
+    // AI analysis is disabled as per user request
     this.activeTab.set('analysis');
-    if (this.countryDetails()) return; // Already loaded
-
-    this.countryDetailsLoading.set(true);
-    
-    if (!this.ai) {
-      this.countryDetails.set('Error: Gemini API key is missing.');
-      this.countryDetailsLoading.set(false);
-      return;
-    }
-
-    try {
-      const name = country.name;
-      const statuses = country.statuses;
-
-      let newsContext = '';
-      const sources = [
-        { name: 'Tagesschau', news: this.filteredTagesschau() },
-        { name: 'BBC', news: this.filteredBbc() },
-        { name: 'NYT', news: this.filteredNyt() },
-        { name: 'The Guardian', news: this.filteredGuardian() },
-        { name: 'AllAfrica', news: this.filteredAllAfrica() },
-        { name: 'MercoPress', news: this.filteredMercoPress() }
-      ];
-
-      sources.forEach(s => {
-        if (s.news.length > 0) {
-          newsContext += `${s.name}:\n` + s.news.slice(0, 5).map((item: TagesschauNewsItem | BbcNewsItem | NytArticle | GuardianArticle | AllAfricaNewsItem | MercoPressNewsItem) => {
-            let title = '';
-            let summary = '';
-            
-            if ('title' in item) title = item.title;
-            else if ('webTitle' in item) title = item.webTitle;
-            
-            if ('summary' in item) summary = item.summary;
-            else if ('abstract' in item) summary = item.abstract;
-            else if ('firstSentence' in item) summary = item.firstSentence;
-            else if ('sectionName' in item) summary = item.sectionName;
-
-            return `Title: ${title}\nSummary: ${summary}`;
-          }).join('\n\n') + '\n\n';
-        }
-      });
-
-      const response = await this.ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: `Based on the following recent news and your general knowledge, provide a brief, 2-3 paragraph summary of the current geopolitical situation in ${name}. It is currently marked with the following statuses by different sources: ${statuses.map(s => `${s.source}: ${s.status}`).join(', ') || 'No Data'}. Focus on conflicts, tensions, or political instability. Do not use markdown formatting like bolding or headers, just plain text paragraphs.\n\nRecent News for ${name}:\n${newsContext || 'No specific recent news found in the latest feeds.'}`,
-        config: {
-          tools: [{ googleSearch: {} }],
-        }
-      });
-      this.countryDetails.set(response.text || 'No details found.');
-    } catch (error) {
-      console.error('Error fetching details:', error);
-      this.countryDetails.set('Failed to load details. Please try again later.');
-    } finally {
-      this.countryDetailsLoading.set(false);
-    }
+    this.countryDetails.set('AI Analysis is currently disabled.');
   }
 
   private async renderGlobe() {
@@ -709,26 +646,20 @@ export class Globe implements OnDestroy {
   }
 
   private async getCountryStatuses(): Promise<Record<string, SourceStatus[]>> {
-    if (!this.ai) {
-      console.error('Gemini AI not initialized. Missing API key.');
-      return {};
-    }
     try {
       const proxyUrl = 'https://api.allorigins.win/raw?url=';
       
-      // Fetch news from Tagesschau API
+      // Start fetching news in parallel but don't await them yet
       const tagesschauPromise = fetch('https://www.tagesschau.de/api2u/news/?regions=9&ressort=ausland', {
         headers: { 'accept': 'application/json' }
       }).then(res => res.json()).catch(() => ({ news: [] }));
 
-      // Fetch news from BBC via RSS-to-JSON (more reliable)
       const bbcNewsPromise = fetch('https://api.rss2json.com/v1/api.json?rss_url=https://feeds.bbci.co.uk/news/world/rss.xml', {
         headers: { 'accept': 'application/json' }
       }).then(res => res.json())
         .catch(() => fetch(`${proxyUrl}${encodeURIComponent('https://api.rss2json.com/v1/api.json?rss_url=https://feeds.bbci.co.uk/news/world/rss.xml')}`).then(res => res.json()))
         .catch(() => ({ items: [] }));
 
-      // Fetch news from NYT API
       let nytPromise: Promise<{results: NytArticle[]}> = Promise.resolve({ results: [] });
       if (typeof NYT_API_KEY !== 'undefined' && NYT_API_KEY) {
         this.nytApiKeyMissing.set(false);
@@ -739,10 +670,8 @@ export class Globe implements OnDestroy {
           .catch(() => ({ results: [] }));
       } else {
         this.nytApiKeyMissing.set(true);
-        console.warn('NYT_API_KEY is not defined. Skipping NYT news fetch.');
       }
 
-      // Fetch news from Guardian API
       let guardianPromise: Promise<{response: {results: GuardianArticle[]}}> = Promise.resolve({ response: { results: [] } });
       if (typeof GUARDIAN_API_KEY !== 'undefined' && GUARDIAN_API_KEY) {
         this.guardianApiKeyMissing.set(false);
@@ -753,35 +682,48 @@ export class Globe implements OnDestroy {
           .catch(() => ({ response: { results: [] } }));
       } else {
         this.guardianApiKeyMissing.set(true);
-        console.warn('GUARDIAN_API_KEY is not defined. Skipping Guardian news fetch.');
       }
 
-      // Fetch news from AllAfrica via RSS-to-JSON
       const allAfricaPromise = fetch('https://api.rss2json.com/v1/api.json?rss_url=https://allafrica.com/tools/headlines/rdf/latest/headlines.rdf', {
         headers: { 'accept': 'application/json' }
       }).then(res => res.json())
         .catch(() => fetch(`${proxyUrl}${encodeURIComponent('https://api.rss2json.com/v1/api.json?rss_url=https://allafrica.com/tools/headlines/rdf/latest/headlines.rdf')}`).then(res => res.json()))
         .catch(() => ({ items: [] }));
 
-      // Fetch news from MercoPress via RSS-to-JSON
       const mercoPressPromise = fetch('https://api.rss2json.com/v1/api.json?rss_url=https://en.mercopress.com/rss/', {
         headers: { 'accept': 'application/json' }
       }).then(res => res.json())
         .catch(() => fetch(`${proxyUrl}${encodeURIComponent('https://api.rss2json.com/v1/api.json?rss_url=https://en.mercopress.com/rss/')}`).then(res => res.json()))
         .catch(() => ({ items: [] }));
 
-      const [newsData, bbcData, nytData, guardianData, allAfricaData, mercoPressData] = await Promise.all([
+      // Fetch Travel Advisory API - Critical for globe status
+      // Use corsproxy.io as it might handle large responses better
+      const travelAdvisoryPromise = fetch('https://corsproxy.io/?' + encodeURIComponent('https://www.travel-advisory.info/api'), {
+        headers: { 'accept': 'application/json' }
+      }).then(res => res.json())
+        .catch(() => fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent('https://www.travel-advisory.info/api')).then(res => res.json()))
+        .catch(() => ({ data: {} }));
+
+      // Fetch RestCountries for ISO mapping - Optional now since we have fallback
+      const restCountriesPromise = fetch('https://restcountries.com/v3.1/all?fields=cca2,cca3,name', {
+        headers: { 'accept': 'application/json' }
+      }).then(res => res.json()).catch(() => ([]));
+
+      // Wait for all promises
+      const [newsData, bbcData, nytData, guardianData, allAfricaData, mercoPressData, travelAdvisoryData, restCountriesData] = await Promise.all([
         tagesschauPromise, 
         bbcNewsPromise, 
         nytPromise,
         guardianPromise,
         allAfricaPromise,
-        mercoPressPromise
+        mercoPressPromise,
+        travelAdvisoryPromise,
+        restCountriesPromise
       ]);
       
+      // Populate news data
       this.tagesschauNews = newsData.news || [];
       
-      // Extract BBC news from RSS items
       const bbcArticles: BbcNewsItem[] = [];
       if (bbcData && Array.isArray(bbcData.items)) {
         interface RssItem {
@@ -804,7 +746,6 @@ export class Globe implements OnDestroy {
       this.nytNews = nytData.results || [];
       this.guardianNews = guardianData.response?.results || [];
       
-      // Extract AllAfrica news from RSS items
       const allAfricaArticles: AllAfricaNewsItem[] = [];
       if (allAfricaData && Array.isArray(allAfricaData.items)) {
         interface RssItem {
@@ -823,7 +764,6 @@ export class Globe implements OnDestroy {
       }
       this.allAfricaNews = allAfricaArticles;
 
-      // Extract MercoPress news from RSS items
       const mercoPressArticles: MercoPressNewsItem[] = [];
       if (mercoPressData && Array.isArray(mercoPressData.items)) {
         interface RssItem {
@@ -850,111 +790,93 @@ export class Globe implements OnDestroy {
         });
       }
       this.mercoPressNews = mercoPressArticles;
-      
-      // Extract relevant text from news (only titles to save tokens and speed up processing)
-      const tagesschauText = this.tagesschauNews.slice(0, 10).map((item) => 
-        `Title: ${item.title}`
-      ).join('\n');
 
-      const bbcText = this.bbcNews.slice(0, 10).map((item) => 
-        `Title: ${item.title}`
-      ).join('\n');
-
-      const nytText = this.nytNews.slice(0, 10).map((item) => 
-        `Title: ${item.title}`
-      ).join('\n');
-
-      const guardianText = this.guardianNews.slice(0, 10).map((item) => 
-        `Title: ${item.webTitle}`
-      ).join('\n');
-
-      const allAfricaText = this.allAfricaNews.slice(0, 10).map((item) => 
-        `Title: ${item.title}`
-      ).join('\n');
-
-      const mercoPressText = this.mercoPressNews.slice(0, 10).map((item) => 
-        `Title: ${item.title}`
-      ).join('\n');
-
-      const response = await this.ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: `Based on the following recent news headlines from Tagesschau, BBC, NYT, The Guardian, AllAfrica, and MercoPress, determine the current geopolitical status of countries worldwide. 
-Evaluate the status of each country according to EACH individual news source that mentions it.
-Categorize the status into one of four values: "war" (active major conflicts), "tense" (high tension, border skirmishes, significant internal unrest), "watch" (potential for instability, political crisis, emerging issues), or "stable" (specifically mentioned in the news as stable, peaceful, or having positive developments).
-If a source does not mention a country, do not include that source for that country.
-Return ONLY a JSON object containing an array of countries, where each country has a name and a list of statuses from the different sources. Ensure country names match standard English names (e.g., "Russia", "Ukraine", "Israel", "Palestine", "Sudan", "Taiwan").
-
-Tagesschau News:
-${tagesschauText}
-
-BBC News:
-${bbcText}
-
-NYT News:
-${nytText}
-
-The Guardian News:
-${guardianText}
-
-AllAfrica News:
-${allAfricaText}
-
-MercoPress News:
-${mercoPressText}`,
-        config: {
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              countries: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    name: { type: Type.STRING, description: "Standard English country name" },
-                    statuses: {
-                      type: Type.ARRAY,
-                      items: {
-                        type: Type.OBJECT,
-                        properties: {
-                          source: { type: Type.STRING, description: "Name of the news source (e.g., 'BBC', 'Tagesschau')" },
-                          status: { type: Type.STRING, description: "One of: 'war', 'tense', 'watch', 'stable'" }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      });
-      
-      const data = JSON.parse(response.text || '{}');
+      // Process Travel Advisory Data
       const result: Record<string, SourceStatus[]> = {};
       
-      const normalize = (name: string) => name.toLowerCase().trim();
-      
-      if (data.countries && Array.isArray(data.countries)) {
-        data.countries.forEach((c: { name: string; statuses: SourceStatus[] }) => {
-          if (c.name && Array.isArray(c.statuses)) {
-            result[c.name] = c.statuses;
+      // Create mapping: ISO3 -> ISO2
+      const mapping: Record<string, string> = { ...iso3ToIso2 }; // Start with fallback
+      if (Array.isArray(restCountriesData) && restCountriesData.length > 0) {
+        restCountriesData.forEach((c: { cca2: string; cca3: string }) => {
+          if (c.cca2 && c.cca3) {
+            mapping[c.cca3] = c.cca2;
+          }
+        });
+      }
+
+      const advisoryData = travelAdvisoryData.data || {};
+
+      // Keyword-based fallback logic (NOT AI)
+      const getStatusFromKeywords = (text: string): string | null => {
+        const lower = text.toLowerCase();
+        // Stricter 'war' criteria
+        if (lower.includes('civil war') || lower.includes('declared war') || lower.includes('genocide')) return 'war';
+        // Move generic 'war' and 'conflict' to 'tense' to avoid false positives
+        if (lower.includes('war') || lower.includes('conflict') || lower.includes('attack') || lower.includes('invasion') || lower.includes('bombing') || lower.includes('military operation')) return 'tense';
+        if (lower.includes('tense') || lower.includes('tension') || lower.includes('crisis') || lower.includes('unrest') || lower.includes('protest') || lower.includes('riot')) return 'tense';
+        if (lower.includes('election') || lower.includes('political') || lower.includes('economy') || lower.includes('warning') || lower.includes('diplomatic')) return 'watch';
+        if (lower.includes('peace') || lower.includes('agreement') || lower.includes('stable') || lower.includes('growth') || lower.includes('treaty')) return 'stable';
+        return null;
+      };
+
+      // Collect all news text for fallback
+      const allNews = [
+        ...this.tagesschauNews.map(i => ({ text: i.title + ' ' + i.firstSentence, source: 'Tagesschau' })),
+        ...this.bbcNews.map(i => ({ text: i.title + ' ' + i.summary, source: 'BBC' })),
+        ...this.nytNews.map(i => ({ text: i.title + ' ' + i.abstract, source: 'NYT' })),
+        ...this.guardianNews.map(i => ({ text: i.webTitle, source: 'Guardian' })),
+        ...this.allAfricaNews.map(i => ({ text: i.title + ' ' + i.summary, source: 'AllAfrica' })),
+        ...this.mercoPressNews.map(i => ({ text: i.title + ' ' + i.summary, source: 'MercoPress' }))
+      ];
+
+      if (this.worldData && this.worldData.features) {
+        this.worldData.features.forEach((feature: Feature) => {
+          const name = feature.properties.name;
+          const id = feature.id; // ISO3 usually
+          
+          let iso2 = '';
+          if (id && mapping[id]) {
+            iso2 = mapping[id];
+          }
+
+          let statusFound = false;
+
+          // 1. Try Travel Advisory API
+          if (iso2 && advisoryData[iso2]) {
+            const score = advisoryData[iso2].advisory.score;
+            let status = 'stable';
+            if (score >= 4.5) status = 'war';
+            else if (score >= 3.5) status = 'tense';
+            else if (score >= 2.5) status = 'watch';
+            
+            result[name] = [{ source: 'Travel Advisory', status }];
+            statusFound = true;
+          } 
+          
+          // 2. Fallback: Keyword search in news if no advisory data
+          if (!statusFound) {
+            const countryNews = allNews.filter(n => n.text.toLowerCase().includes(name.toLowerCase()));
+            if (countryNews.length > 0) {
+              const statuses: SourceStatus[] = [];
+              countryNews.forEach(news => {
+                const s = getStatusFromKeywords(news.text);
+                if (s) {
+                  // Avoid duplicates per source
+                  if (!statuses.find(st => st.source === news.source)) {
+                    statuses.push({ source: news.source, status: s });
+                  }
+                }
+              });
+              
+              if (statuses.length > 0) {
+                result[name] = statuses;
+              }
+            }
           }
         });
       }
       
-      const normalizedResult: Record<string, SourceStatus[]> = {};
-      Object.entries(result).forEach(([key, value]) => {
-        normalizedResult[normalize(key)] = value;
-      });
-      
-      return new Proxy(result, {
-        get: (target, prop: string) => {
-          if (prop in target) return target[prop];
-          return normalizedResult[normalize(prop)];
-        }
-      });
+      return result;
     } catch (error) {
       console.error('Error fetching statuses:', error);
       return {};
