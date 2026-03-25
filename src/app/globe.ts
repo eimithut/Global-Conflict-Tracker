@@ -76,7 +76,7 @@ interface SourceStatus {
     }
   `],
   template: `
-    <div class="relative w-screen h-screen flex flex-col items-center justify-center starry-bg overflow-hidden">
+    <div class="relative w-screen h-screen flex flex-col items-center justify-center overflow-hidden" [class.starry-bg]="!performanceMode()" [class.bg-slate-950]="performanceMode()">
       @if (loading()) {
         <div class="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/80 z-10 text-white">
           <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-white mb-4"></div>
@@ -95,6 +95,18 @@ interface SourceStatus {
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
           <path d="M3 3v5h5"/>
+        </svg>
+      </button>
+
+      <!-- Performance Mode Button -->
+      <button 
+        (click)="togglePerformanceMode()"
+        class="absolute top-20 left-6 bg-slate-800/90 hover:bg-slate-700 p-3 rounded-full border border-slate-600 text-slate-200 shadow-lg backdrop-blur-sm transition-colors"
+        [class.text-green-400]="performanceMode()"
+        title="Toggle Performance Mode"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
         </svg>
       </button>
 
@@ -478,6 +490,12 @@ export class Globe implements OnDestroy {
   searchQuery = signal('');
   allCountries = signal<Feature[]>([]);
   searchResults = signal<Feature[]>([]);
+  performanceMode = signal(false);
+
+  togglePerformanceMode() {
+    this.performanceMode.set(!this.performanceMode());
+    this.renderGlobe();
+  }
 
   constructor() {
     if (typeof GEMINI_API_KEY !== 'undefined' && GEMINI_API_KEY) {
@@ -765,8 +783,11 @@ export class Globe implements OnDestroy {
 
     // Create a group for countries
     const g = svg.append('g')
-      .attr('filter', 'url(#3d-float)')
       .attr('clip-path', 'url(#globe-clip)');
+      
+    if (!this.performanceMode()) {
+      g.attr('filter', 'url(#3d-float)');
+    }
 
     if (this.worldData) {
       this.loading.set(false);
@@ -834,13 +855,15 @@ export class Globe implements OnDestroy {
         });
     }
 
-    // Add dynamic lighting overlay
-    svg.append('path')
-      .datum({type: 'Sphere'})
-      .attr('class', 'lighting')
-      .attr('d', (d: unknown) => path(d as d3.GeoPermissibleObjects) || '')
-      .attr('fill', 'url(#lighting)')
-      .style('pointer-events', 'none');
+    if (!this.performanceMode()) {
+      // Add dynamic lighting overlay
+      svg.append('path')
+        .datum({type: 'Sphere'})
+        .attr('class', 'lighting')
+        .attr('d', (d: unknown) => path(d as d3.GeoPermissibleObjects) || '')
+        .attr('fill', 'url(#lighting)')
+        .style('pointer-events', 'none');
+    }
 
     this.currentProjection = projection;
     this.currentPath = path;
@@ -915,38 +938,46 @@ export class Globe implements OnDestroy {
     if (!this.currentProjection || !this.currentSvg || !this.currentPath) return;
 
     this.lastInteractionTime = Date.now();
-    const centroid = d3.geoCentroid(d as any);
+    const centroid = d3.geoCentroid(d as unknown as d3.ExtendedFeature);
     
-    d3.transition()
-      .duration(1200)
-      .tween('rotate', () => {
-        const r = d3.interpolate(this.currentProjection!.rotate(), [-centroid[0], -centroid[1]]);
-        return (t) => {
-          this.currentProjection!.rotate(r(t) as [number, number, number]);
-          this.currentSvg!.selectAll('path').attr('d', (d: unknown) => this.currentPath!(d as d3.GeoPermissibleObjects) || '');
-        };
-      });
+    if (this.performanceMode()) {
+      this.currentProjection.rotate([-centroid[0], -centroid[1]]);
+      this.currentSvg.selectAll('path').attr('d', (d: unknown) => this.currentPath!(d as d3.GeoPermissibleObjects) || '');
+    } else {
+      d3.transition()
+        .duration(1200)
+        .tween('rotate', () => {
+          const r = d3.interpolate(this.currentProjection!.rotate(), [-centroid[0], -centroid[1]]);
+          return (t) => {
+            this.currentProjection!.rotate(r(t) as [number, number, number]);
+            this.currentSvg!.selectAll('path').attr('d', (d: unknown) => this.currentPath!(d as d3.GeoPermissibleObjects) || '');
+          };
+        });
+    }
   }
 
   resetView() {
     if (!this.currentProjection || !this.currentSvg || !this.currentPath) return;
 
     this.lastInteractionTime = Date.now();
-    const container = this.globeContainer().nativeElement;
-    const width = container.clientWidth;
-    const height = container.clientHeight;
 
-    d3.transition()
-      .duration(1200)
-      .tween('rotate', () => {
-        const r = d3.interpolate(this.currentProjection!.rotate(), [0, 0]);
-        const s = d3.interpolate(this.currentProjection!.scale(), this.initialScale);
-        return (t) => {
-          this.currentProjection!.rotate(r(t) as [number, number, number]);
-          this.currentProjection!.scale(s(t));
-          this.currentSvg!.selectAll('path').attr('d', (d: unknown) => this.currentPath!(d as d3.GeoPermissibleObjects) || '');
-        };
-      });
+    if (this.performanceMode()) {
+      this.currentProjection.rotate([0, 0]);
+      this.currentProjection.scale(this.initialScale);
+      this.currentSvg.selectAll('path').attr('d', (d: unknown) => this.currentPath!(d as d3.GeoPermissibleObjects) || '');
+    } else {
+      d3.transition()
+        .duration(1200)
+        .tween('rotate', () => {
+          const r = d3.interpolate(this.currentProjection!.rotate(), [0, 0]);
+          const s = d3.interpolate(this.currentProjection!.scale(), this.initialScale);
+          return (t) => {
+            this.currentProjection!.rotate(r(t) as [number, number, number]);
+            this.currentProjection!.scale(s(t));
+            this.currentSvg!.selectAll('path').attr('d', (d: unknown) => this.currentPath!(d as d3.GeoPermissibleObjects) || '');
+          };
+        });
+    }
   }
 
   private async getCountryStatuses(): Promise<Record<string, SourceStatus[]>> {
