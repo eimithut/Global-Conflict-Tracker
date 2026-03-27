@@ -110,6 +110,24 @@ interface SourceStatus {
         </svg>
       </button>
 
+      <!-- All Projects Button -->
+      <a 
+        href="https://eimithut.pages.dev"
+        target="_blank"
+        class="absolute top-[8.5rem] left-6 bg-slate-800/90 hover:bg-slate-700 h-11 w-11 hover:w-44 rounded-full border border-slate-600 text-slate-200 shadow-lg backdrop-blur-sm transition-all duration-300 flex items-center overflow-hidden group"
+        title="All Projects"
+      >
+        <div class="min-w-[44px] flex justify-center items-center">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="group-hover:scale-110 transition-transform">
+            <rect x="3" y="3" width="7" height="7"></rect>
+            <rect x="14" y="3" width="7" height="7"></rect>
+            <rect x="14" y="14" width="7" height="7"></rect>
+            <rect x="3" y="14" width="7" height="7"></rect>
+          </svg>
+        </div>
+        <span class="text-[10px] font-bold uppercase tracking-widest whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-300 pr-4">All Projects</span>
+      </a>
+
       <!-- Search Bar -->
       <div class="absolute top-6 right-6 z-20 w-64">
         <div class="relative">
